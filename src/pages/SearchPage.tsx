@@ -1,18 +1,13 @@
 import { useState } from "react";
 import { Search as SearchIcon } from "lucide-react";
 import ListingCard from "@/components/ListingCard";
-import { MOCK_LISTINGS } from "@/data/mock";
+import { useListings } from "@/hooks/useListings";
 import { CATEGORIES } from "@/types/marketplace";
 
 const SearchPage = () => {
   const [query, setQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-
-  const filtered = MOCK_LISTINGS.filter((l) => {
-    const matchesQuery = !query || l.title.toLowerCase().includes(query.toLowerCase()) || l.location.toLowerCase().includes(query.toLowerCase());
-    const matchesCat = !selectedCategory || l.category === selectedCategory;
-    return matchesQuery && matchesCat;
-  });
+  const { data: listings, isLoading } = useListings(selectedCategory || undefined, query || undefined);
 
   return (
     <div className="pb-24">
@@ -30,7 +25,6 @@ const SearchPage = () => {
         </div>
       </header>
 
-      {/* Categories */}
       <div className="flex gap-2 overflow-x-auto px-4 py-3 no-scrollbar">
         <button
           onClick={() => setSelectedCategory(null)}
@@ -50,13 +44,18 @@ const SearchPage = () => {
       </div>
 
       <main className="px-4">
-        <p className="text-sm text-muted-foreground mb-3">{filtered.length} results</p>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {filtered.map((listing) => (
-            <ListingCard key={listing.id} listing={listing} />
-          ))}
-        </div>
-        {filtered.length === 0 && (
+        {isLoading ? (
+          <div className="space-y-4">
+            {[1, 2].map((i) => <div key={i} className="h-56 rounded-2xl bg-muted animate-pulse" />)}
+          </div>
+        ) : listings && listings.length > 0 ? (
+          <>
+            <p className="text-sm text-muted-foreground mb-3">{listings.length} results</p>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              {listings.map((listing) => <ListingCard key={listing.id} listing={listing} />)}
+            </div>
+          </>
+        ) : (
           <div className="text-center py-12">
             <p className="text-muted-foreground">No items found. Try a different search.</p>
           </div>
