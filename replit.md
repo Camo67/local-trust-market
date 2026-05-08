@@ -1,45 +1,50 @@
-# [Project name]
+# Buddies Worldwide
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+A safe local marketplace app for South African community trading, with escrow payments, ID verification, and moderated dispute resolution.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
+- `pnpm --filter @workspace/buddies-worldwide run dev` — run the frontend (port assigned by Replit)
 - `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- Required env: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`
 
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
-- DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+- Frontend: React + Vite + React Router v7
+- Backend: Supabase (Postgres + Auth + Storage + RLS)
+- UI: Tailwind CSS v4, shadcn/ui, Lucide icons
+- State: TanStack Query (React Query)
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `artifacts/buddies-worldwide/src/` — main React app
+- `artifacts/buddies-worldwide/src/integrations/supabase/` — Supabase client + TypeScript types
+- `artifacts/buddies-worldwide/src/pages/` — all page components
+- `artifacts/buddies-worldwide/src/hooks/` — useListings, useConversations, useOrders
+- `artifacts/buddies-worldwide/src/contexts/AuthContext.tsx` — auth state
+- `artifacts/buddies-worldwide/supabase_migration.sql` — **run this in Supabase SQL Editor** to apply new schema
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- All DB access via Supabase client (RLS enforced at DB level)
+- Three-way chat: `conversations.moderator_id` joins a moderator into a buyer-seller chat
+- Multi-image: `listing_images` table stores additional images; `listings.image_url` stays as cover/fallback
+- Verification: `verification_requests` table + `profiles.verification_status` column, synced via DB trigger
+- Verification docs stored in private `verification-docs` Supabase Storage bucket (not public)
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
-
-## User preferences
-
-_Populate as you build — explicit user instructions worth remembering across sessions._
+- Browse and search local listings with multi-image carousel
+- Sell items with up to 5 photos uploaded to Supabase Storage
+- Escrow-secured orders with status timeline
+- In-app messaging with fraud pattern detection (blocks phone numbers, bank names, off-platform payment prompts)
+- Three-way moderated chat for dispute resolution (moderator joins via `moderator_id` on conversation)
+- ID verification flow: upload SA ID/passport/driver's licence + selfie → admin reviews → profile upgraded to Verified
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
-
-## Pointers
-
-- See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details
+- **Run `supabase_migration.sql` in Supabase SQL Editor before using new features** (verification, multi-image, three-way chat)
+- The `listing_images` table must exist before SellPage can insert multi-image rows
+- The `verification-docs` storage bucket must exist (created by migration) before VerifyPage uploads work
+- `conversations_moderator_id_fkey` FK join only works once `moderator_id` column is added by migration
