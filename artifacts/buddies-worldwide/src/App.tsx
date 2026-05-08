@@ -13,6 +13,7 @@ import ListingDetailPage from "./pages/ListingDetailPage";
 import ChatPage from "./pages/ChatPage";
 import AuthPage from "./pages/AuthPage";
 import VerifyPage from "./pages/VerifyPage";
+import AdminPage from "./pages/AdminPage";
 import NotFound from "./pages/not-found";
 
 const queryClient = new QueryClient();
@@ -33,7 +34,10 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
 const AppLayout = () => {
   const location = useLocation();
   const { user } = useAuth();
-  const hideNav = location.pathname.startsWith("/chat/") || location.pathname === "/auth";
+  const hideNav =
+    location.pathname.startsWith("/chat/") ||
+    location.pathname === "/auth" ||
+    location.pathname === "/admin";
 
   return (
     <>
@@ -47,6 +51,7 @@ const AppLayout = () => {
         <Route path="/listing/:id" element={<ProtectedRoute><ListingDetailPage /></ProtectedRoute>} />
         <Route path="/chat/:id" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
         <Route path="/verify" element={<ProtectedRoute><VerifyPage /></ProtectedRoute>} />
+        <Route path="/admin" element={<ProtectedRoute><AdminPage /></ProtectedRoute>} />
         <Route path="*" element={<NotFound />} />
       </Routes>
       {!hideNav && user && <BottomNav />}
