@@ -1,9 +1,30 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
 
 export const useConversations = () => {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!user) return;
+
+    const channel = supabase
+      .channel("conversations_list")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "conversations" },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ["conversations", user.id] });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user, queryClient]);
 
   return useQuery({
     queryKey: ["conversations", user?.id],
@@ -32,6 +53,40 @@ export const useConversations = () => {
 };
 
 export const useMessages = (conversationId: string) => {
+  const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (!conversationId) return;
+
+    const channel = supabase
+      .channel(`messages:${conversationId}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "messages",
+          filter: `conversation_id=eq.${conversationId}`,
+        },
+        (payload) => {
+          queryClient.setQueryData(
+            ["messages", conversationId],
+            (old: any[] | undefined) => {
+              if (!old) return [payload.new];
+              const exists = old.some((m) => m.id === payload.new.id);
+              if (exists) return old;
+              return [...old, payload.new];
+            }
+          );
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [conversationId, queryClient]);
+
   return useQuery({
     queryKey: ["messages", conversationId],
     queryFn: async () => {
@@ -44,7 +99,6 @@ export const useMessages = (conversationId: string) => {
       return data;
     },
     enabled: !!conversationId,
-    refetchInterval: 3000,
   });
 };
 

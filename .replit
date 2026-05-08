@@ -30,3 +30,9 @@ externalPort = 80
 [[ports]]
 localPort = 22096
 externalPort = 3000
+
+[userenv]
+
+[userenv.shared]
+VITE_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdobGVsbGFyenBrcGZtZndqbnhxIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODIzNjgzOCwiZXhwIjoyMDkzODEyODM4fQ.nQjuZ1JsAgKpGgYGUWDhoqcJBnuVD6LssqvNpfMCNDI"
+VITE_SUPABASE_URL = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdobGVsbGFyenBrcGZtZndqbnhxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgyMzY4MzgsImV4cCI6MjA5MzgxMjgzOH0.hDBxxUJLuWNug8AxtwQ5Y49X2XUC8WPHlOp0kKGD07I"
