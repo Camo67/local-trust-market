@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "Buddies Worldwide"
+version = "1.0.0"
+id = "artifacts/buddies-worldwide"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 22096
+
+[services.development]
+run = "pnpm --filter @workspace/buddies-worldwide run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/buddies-worldwide", "run", "build" ]
+publicDir = "artifacts/buddies-worldwide/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22096"
+BASE_PATH = "/"
