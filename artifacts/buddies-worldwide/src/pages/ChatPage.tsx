@@ -5,6 +5,7 @@ import { useMessages, useConversation } from "@/hooks/useConversations";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUnread } from "@/contexts/UnreadContext";
 import { supabase } from "@/integrations/supabase/client";
+import { sendPushNotification } from "@/hooks/usePushNotifications";
 
 const BLOCKED_PATTERNS = [
   /whatsapp/i, /watsapp/i, /wat'sap/i,
@@ -159,6 +160,30 @@ const ChatPage = () => {
       content,
       message_type: "text",
     });
+
+    if (conversation) {
+      const myName =
+        conversation.buyer_id === user.id
+          ? conversation.buyer_profile?.display_name
+          : conversation.seller_id === user.id
+            ? conversation.seller_profile?.display_name
+            : conversation.moderator_profile?.display_name ?? "Someone";
+
+      const recipients = [
+        conversation.buyer_id,
+        conversation.seller_id,
+        conversation.moderator_id,
+      ].filter((uid): uid is string => !!uid && uid !== user.id);
+
+      if (recipients.length > 0) {
+        sendPushNotification({
+          recipientUserIds: recipients,
+          title: myName || "New message",
+          body: content.length > 80 ? content.slice(0, 77) + "…" : content,
+          conversationId: id,
+        });
+      }
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

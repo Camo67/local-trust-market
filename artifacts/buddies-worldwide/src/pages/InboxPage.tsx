@@ -2,18 +2,39 @@ import { useNavigate } from "react-router-dom";
 import { useConversations } from "@/hooks/useConversations";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUnread } from "@/contexts/UnreadContext";
-import { Shield } from "lucide-react";
+import { usePushNotifications } from "@/hooks/usePushNotifications";
+import { Shield, Bell, BellOff } from "lucide-react";
 
 const InboxPage = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { data: conversations, isLoading } = useConversations();
   const { counts } = useUnread();
+  const { supported, permission, isSubscribed, isLoading: pushLoading, subscribe, unsubscribe } = usePushNotifications();
 
   return (
     <div className="pb-24">
-      <header className="sticky top-0 z-40 bg-background/80 backdrop-blur-sm px-4 pt-4 pb-3">
+      <header className="sticky top-0 z-40 bg-background/80 backdrop-blur-sm px-4 pt-4 pb-3 flex items-center justify-between">
         <h1 className="text-xl font-semibold">Inbox</h1>
+        {supported && permission !== "denied" && (
+          <button
+            onClick={isSubscribed ? unsubscribe : subscribe}
+            disabled={pushLoading}
+            className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${
+              isSubscribed
+                ? "bg-primary/10 text-primary"
+                : permission === "granted"
+                  ? "bg-muted text-muted-foreground"
+                  : "bg-primary text-primary-foreground"
+            }`}
+          >
+            {isSubscribed ? (
+              <><BellOff className="h-3.5 w-3.5" /> Mute</>
+            ) : (
+              <><Bell className="h-3.5 w-3.5" /> {permission === "granted" ? "Enable alerts" : "Get notified"}</>
+            )}
+          </button>
+        )}
       </header>
 
       <div className="mx-4 mb-3 rounded-xl bg-warning/10 px-3 py-2">
