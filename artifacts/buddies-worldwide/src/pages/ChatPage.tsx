@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Send, AlertTriangle, Shield } from "lucide-react";
 import { useMessages, useConversation } from "@/hooks/useConversations";
 import { useAuth } from "@/contexts/AuthContext";
+import { useUnread } from "@/contexts/UnreadContext";
 import { supabase } from "@/integrations/supabase/client";
 
 const BLOCKED_PATTERNS = [
@@ -19,6 +20,7 @@ const ChatPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { markRead } = useUnread();
   const { data: messages } = useMessages(id || "");
   const { data: conversation } = useConversation(id || "");
   const [input, setInput] = useState("");
@@ -28,6 +30,14 @@ const ChatPage = () => {
   const typingTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const broadcastChannel = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const lastTypingSent = useRef<number>(0);
+
+  useEffect(() => {
+    if (id) markRead(id);
+  }, [id, markRead]);
+
+  useEffect(() => {
+    if (id && messages && messages.length > 0) markRead(id);
+  }, [id, messages?.length]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -46,9 +56,7 @@ const ChatPage = () => {
       .on("broadcast", { event: "typing" }, ({ payload }) => {
         const { userId, displayName } = payload as { userId: string; displayName: string };
         if (userId === user.id) return;
-
         setTypingUsers((prev) => ({ ...prev, [userId]: displayName }));
-
         if (typingTimers.current[userId]) clearTimeout(typingTimers.current[userId]);
         typingTimers.current[userId] = setTimeout(() => {
           setTypingUsers((prev) => {
@@ -142,11 +150,9 @@ const ChatPage = () => {
   const sendMessage = async () => {
     if (!input.trim() || !user || !id) return;
     if (checkForBlockedContent(input)) return;
-
     const content = input.trim();
     setInput("");
     broadcastStopTyping();
-
     await supabase.from("messages").insert({
       conversation_id: id,
       sender_id: user.id,
@@ -166,11 +172,8 @@ const ChatPage = () => {
     const val = e.target.value;
     setInput(val);
     if (warning) checkForBlockedContent(val);
-    if (val.trim()) {
-      broadcastTyping();
-    } else {
-      broadcastStopTyping();
-    }
+    if (val.trim()) broadcastTyping();
+    else broadcastStopTyping();
   };
 
   const otherName = conversation

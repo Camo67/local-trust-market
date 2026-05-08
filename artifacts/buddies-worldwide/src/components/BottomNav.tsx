@@ -1,5 +1,6 @@
 import { Home, Search, PlusCircle, Package, MessageCircle } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { useUnread } from "@/contexts/UnreadContext";
 
 const tabs = [
   { icon: Home, label: "Home", path: "/" },
@@ -12,6 +13,7 @@ const tabs = [
 const BottomNav = () => {
   const location = useLocation();
   const navigate = useNavigate();
+  const { total } = useUnread();
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-border bg-card safe-bottom">
@@ -19,6 +21,8 @@ const BottomNav = () => {
         {tabs.map((tab) => {
           const active = location.pathname === tab.path;
           const Icon = tab.icon;
+          const isInbox = tab.path === "/inbox";
+
           if (tab.special) {
             return (
               <button key={tab.path} onClick={() => navigate(tab.path)} className="flex flex-col items-center -mt-6">
@@ -29,10 +33,24 @@ const BottomNav = () => {
               </button>
             );
           }
+
           return (
-            <button key={tab.path} onClick={() => navigate(tab.path)} className="flex flex-col items-center gap-0.5 py-1">
-              <Icon className={`h-5 w-5 ${active ? "text-primary" : "text-muted-foreground"}`} />
-              <span className={`text-[10px] font-medium ${active ? "text-primary" : "text-muted-foreground"}`}>{tab.label}</span>
+            <button
+              key={tab.path}
+              onClick={() => navigate(tab.path)}
+              className="relative flex flex-col items-center gap-0.5 py-1"
+            >
+              <div className="relative">
+                <Icon className={`h-5 w-5 ${active ? "text-primary" : "text-muted-foreground"}`} />
+                {isInbox && total > 0 && (
+                  <span className="absolute -top-1.5 -right-2 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-bold text-destructive-foreground leading-none">
+                    {total > 99 ? "99+" : total}
+                  </span>
+                )}
+              </div>
+              <span className={`text-[10px] font-medium ${active ? "text-primary" : "text-muted-foreground"}`}>
+                {tab.label}
+              </span>
             </button>
           );
         })}

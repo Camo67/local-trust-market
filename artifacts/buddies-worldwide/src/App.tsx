@@ -3,6 +3,7 @@ import { BrowserRouter, Route, Routes, useLocation, Navigate } from "react-route
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { UnreadProvider } from "@/contexts/UnreadContext";
 import BottomNav from "@/components/BottomNav";
 import HomePage from "./pages/HomePage";
 import SearchPage from "./pages/SearchPage";
@@ -65,7 +66,9 @@ const App = () => (
       <Toaster />
       <BrowserRouter basename={import.meta.env.BASE_URL}>
         <AuthProvider>
-          <AppLayout />
+          <UnreadProvider>
+            <AppLayout />
+          </UnreadProvider>
         </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>
