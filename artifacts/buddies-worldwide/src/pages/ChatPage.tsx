@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, Send, AlertTriangle, Shield } from "lucide-react";
 import { useMessages, useConversation } from "@/hooks/useConversations";
@@ -13,6 +13,8 @@ const BLOCKED_PATTERNS = [
   /fnb|capitec|absa|nedbank|standard bank/i,
 ];
 
+const TYPING_TIMEOUT_MS = 2500;
+
 const ChatPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -21,11 +23,87 @@ const ChatPage = () => {
   const { data: conversation } = useConversation(id || "");
   const [input, setInput] = useState("");
   const [warning, setWarning] = useState<string | null>(null);
+  const [typingUsers, setTypingUsers] = useState<Record<string, string>>({});
   const bottomRef = useRef<HTMLDivElement>(null);
+  const typingTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const broadcastChannel = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const lastTypingSent = useRef<number>(0);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, typingUsers]);
+
+  useEffect(() => {
+    if (!id || !user) return;
+
+    const channel = supabase.channel(`typing:${id}`, {
+      config: { broadcast: { self: false } },
+    });
+
+    broadcastChannel.current = channel;
+
+    channel
+      .on("broadcast", { event: "typing" }, ({ payload }) => {
+        const { userId, displayName } = payload as { userId: string; displayName: string };
+        if (userId === user.id) return;
+
+        setTypingUsers((prev) => ({ ...prev, [userId]: displayName }));
+
+        if (typingTimers.current[userId]) clearTimeout(typingTimers.current[userId]);
+        typingTimers.current[userId] = setTimeout(() => {
+          setTypingUsers((prev) => {
+            const next = { ...prev };
+            delete next[userId];
+            return next;
+          });
+        }, TYPING_TIMEOUT_MS);
+      })
+      .on("broadcast", { event: "stop_typing" }, ({ payload }) => {
+        const { userId } = payload as { userId: string };
+        if (typingTimers.current[userId]) clearTimeout(typingTimers.current[userId]);
+        setTypingUsers((prev) => {
+          const next = { ...prev };
+          delete next[userId];
+          return next;
+        });
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+      broadcastChannel.current = null;
+      Object.values(typingTimers.current).forEach(clearTimeout);
+    };
+  }, [id, user]);
+
+  const broadcastTyping = useCallback(() => {
+    if (!broadcastChannel.current || !user || !id) return;
+    const now = Date.now();
+    if (now - lastTypingSent.current < 800) return;
+    lastTypingSent.current = now;
+
+    const displayName =
+      conversation?.buyer_id === user.id
+        ? conversation?.buyer_profile?.display_name
+        : conversation?.seller_id === user.id
+          ? conversation?.seller_profile?.display_name
+          : conversation?.moderator_profile?.display_name ?? "Someone";
+
+    broadcastChannel.current.send({
+      type: "broadcast",
+      event: "typing",
+      payload: { userId: user.id, displayName: displayName || "Someone" },
+    });
+  }, [user, id, conversation]);
+
+  const broadcastStopTyping = useCallback(() => {
+    if (!broadcastChannel.current || !user) return;
+    broadcastChannel.current.send({
+      type: "broadcast",
+      event: "stop_typing",
+      payload: { userId: user.id },
+    });
+  }, [user]);
 
   const isParticipant = conversation &&
     (conversation.buyer_id === user?.id ||
@@ -67,6 +145,7 @@ const ChatPage = () => {
 
     const content = input.trim();
     setInput("");
+    broadcastStopTyping();
 
     await supabase.from("messages").insert({
       conversation_id: id,
@@ -83,9 +162,30 @@ const ChatPage = () => {
     }
   };
 
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setInput(val);
+    if (warning) checkForBlockedContent(val);
+    if (val.trim()) {
+      broadcastTyping();
+    } else {
+      broadcastStopTyping();
+    }
+  };
+
   const otherName = conversation
     ? (conversation.buyer_id === user?.id ? conversation.seller_profile?.display_name : conversation.buyer_profile?.display_name)
     : "Chat";
+
+  const typingNames = Object.values(typingUsers);
+  const typingLabel =
+    typingNames.length === 1
+      ? `${typingNames[0]} is typing`
+      : typingNames.length === 2
+        ? `${typingNames[0]} and ${typingNames[1]} are typing`
+        : typingNames.length > 2
+          ? "Several people are typing"
+          : null;
 
   return (
     <div className="flex h-dvh flex-col">
@@ -95,7 +195,20 @@ const ChatPage = () => {
         </button>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-card-foreground truncate">{otherName || "Chat"}</p>
-          <p className="text-xs text-muted-foreground truncate">{conversation?.listing?.title}</p>
+          <div className="h-4 overflow-hidden">
+            {typingLabel ? (
+              <p className="flex items-center gap-1 text-xs text-primary animate-pulse">
+                <span>{typingLabel}</span>
+                <span className="inline-flex gap-0.5 items-end pb-0.5">
+                  <span className="h-1 w-1 rounded-full bg-primary animate-bounce [animation-delay:0ms]" />
+                  <span className="h-1 w-1 rounded-full bg-primary animate-bounce [animation-delay:150ms]" />
+                  <span className="h-1 w-1 rounded-full bg-primary animate-bounce [animation-delay:300ms]" />
+                </span>
+              </p>
+            ) : (
+              <p className="text-xs text-muted-foreground truncate">{conversation?.listing?.title}</p>
+            )}
+          </div>
         </div>
         {conversation?.moderator_id && (
           <span className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-2 py-0.5 text-[10px] font-medium text-destructive">
@@ -147,11 +260,23 @@ const ChatPage = () => {
             </div>
           );
         })}
+
         {(!messages || messages.length === 0) && (
           <div className="text-center py-12">
             <p className="text-sm text-muted-foreground">Start the conversation!</p>
           </div>
         )}
+
+        {typingLabel && (
+          <div className="flex items-start">
+            <div className="rounded-2xl rounded-bl-sm bg-card shadow-sm px-3 py-2.5 flex gap-1 items-center">
+              <span className="h-2 w-2 rounded-full bg-muted-foreground animate-bounce [animation-delay:0ms]" />
+              <span className="h-2 w-2 rounded-full bg-muted-foreground animate-bounce [animation-delay:150ms]" />
+              <span className="h-2 w-2 rounded-full bg-muted-foreground animate-bounce [animation-delay:300ms]" />
+            </div>
+          </div>
+        )}
+
         <div ref={bottomRef} />
       </div>
 
@@ -171,8 +296,9 @@ const ChatPage = () => {
       <div className="flex items-center gap-2 border-t border-border bg-card px-4 py-3 safe-bottom">
         <input
           value={input}
-          onChange={(e) => { setInput(e.target.value); if (warning) checkForBlockedContent(e.target.value); }}
+          onChange={handleInputChange}
           onKeyDown={handleKeyDown}
+          onBlur={broadcastStopTyping}
           placeholder={isParticipant ? "Type a message..." : "You are not part of this conversation"}
           disabled={!isParticipant}
           className="flex-1 rounded-xl border border-input bg-background px-3 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50"
