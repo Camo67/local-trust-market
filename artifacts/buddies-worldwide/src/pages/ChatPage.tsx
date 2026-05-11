@@ -8,8 +8,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { sendPushNotification } from "@/hooks/usePushNotifications";
 
 const BLOCKED_PATTERNS = [
-  /whatsapp/i, /watsapp/i, /wat'sap/i,
-  /pay outside/i, /pay direct/i,
+  /whatsapp/i,
+  /watsapp/i,
+  /wat'sap/i,
+  /pay outside/i,
+  /pay direct/i,
   /(\d{10,})/,
   /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/,
   /fnb|capitec|absa|nedbank|standard bank/i,
@@ -20,7 +23,7 @@ const TYPING_TIMEOUT_MS = 2500;
 const ChatPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, session } = useAuth();
   const { markRead } = useUnread();
   const { data: messages } = useMessages(id || "");
   const { data: conversation } = useConversation(id || "");
@@ -29,7 +32,9 @@ const ChatPage = () => {
   const [typingUsers, setTypingUsers] = useState<Record<string, string>>({});
   const bottomRef = useRef<HTMLDivElement>(null);
   const typingTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-  const broadcastChannel = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const broadcastChannel = useRef<ReturnType<typeof supabase.channel> | null>(
+    null,
+  );
   const lastTypingSent = useRef<number>(0);
 
   useEffect(() => {
@@ -55,10 +60,14 @@ const ChatPage = () => {
 
     channel
       .on("broadcast", { event: "typing" }, ({ payload }) => {
-        const { userId, displayName } = payload as { userId: string; displayName: string };
+        const { userId, displayName } = payload as {
+          userId: string;
+          displayName: string;
+        };
         if (userId === user.id) return;
         setTypingUsers((prev) => ({ ...prev, [userId]: displayName }));
-        if (typingTimers.current[userId]) clearTimeout(typingTimers.current[userId]);
+        if (typingTimers.current[userId])
+          clearTimeout(typingTimers.current[userId]);
         typingTimers.current[userId] = setTimeout(() => {
           setTypingUsers((prev) => {
             const next = { ...prev };
@@ -69,7 +78,8 @@ const ChatPage = () => {
       })
       .on("broadcast", { event: "stop_typing" }, ({ payload }) => {
         const { userId } = payload as { userId: string };
-        if (typingTimers.current[userId]) clearTimeout(typingTimers.current[userId]);
+        if (typingTimers.current[userId])
+          clearTimeout(typingTimers.current[userId]);
         setTypingUsers((prev) => {
           const next = { ...prev };
           delete next[userId];
@@ -114,18 +124,22 @@ const ChatPage = () => {
     });
   }, [user]);
 
-  const isParticipant = conversation &&
+  const isParticipant =
+    conversation &&
     (conversation.buyer_id === user?.id ||
-     conversation.seller_id === user?.id ||
-     conversation.moderator_id === user?.id);
+      conversation.seller_id === user?.id ||
+      conversation.moderator_id === user?.id);
 
   const isModerator = conversation?.moderator_id === user?.id;
 
   const getParticipantName = (senderId: string) => {
     if (!conversation) return "User";
-    if (senderId === conversation.buyer_id) return conversation.buyer_profile?.display_name || "Buyer";
-    if (senderId === conversation.seller_id) return conversation.seller_profile?.display_name || "Seller";
-    if (senderId === conversation.moderator_id) return `${conversation.moderator_profile?.display_name || "Moderator"} (Mod)`;
+    if (senderId === conversation.buyer_id)
+      return conversation.buyer_profile?.display_name || "Buyer";
+    if (senderId === conversation.seller_id)
+      return conversation.seller_profile?.display_name || "Seller";
+    if (senderId === conversation.moderator_id)
+      return `${conversation.moderator_profile?.display_name || "Moderator"} (Mod)`;
     return "User";
   };
 
@@ -140,7 +154,9 @@ const ChatPage = () => {
   const checkForBlockedContent = (text: string): boolean => {
     for (const pattern of BLOCKED_PATTERNS) {
       if (pattern.test(text)) {
-        setWarning("⚠️ Do not share personal details or pay outside Buddies Worldwide. Your safety depends on it!");
+        setWarning(
+          "⚠️ Do not share personal details or pay outside Buddies Worldwide. Your safety depends on it!",
+        );
         return true;
       }
     }
@@ -161,7 +177,7 @@ const ChatPage = () => {
       message_type: "text",
     });
 
-    if (conversation) {
+    if (conversation && session) {
       const myName =
         conversation.buyer_id === user.id
           ? conversation.buyer_profile?.display_name
@@ -181,6 +197,7 @@ const ChatPage = () => {
           title: myName || "New message",
           body: content.length > 80 ? content.slice(0, 77) + "…" : content,
           conversationId: id,
+          token: session.access_token,
         });
       }
     }
@@ -202,7 +219,9 @@ const ChatPage = () => {
   };
 
   const otherName = conversation
-    ? (conversation.buyer_id === user?.id ? conversation.seller_profile?.display_name : conversation.buyer_profile?.display_name)
+    ? conversation.buyer_id === user?.id
+      ? conversation.seller_profile?.display_name
+      : conversation.buyer_profile?.display_name
     : "Chat";
 
   const typingNames = Object.values(typingUsers);
@@ -222,7 +241,9 @@ const ChatPage = () => {
           <ArrowLeft className="h-5 w-5 text-foreground" />
         </button>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-card-foreground truncate">{otherName || "Chat"}</p>
+          <p className="text-sm font-semibold text-card-foreground truncate">
+            {otherName || "Chat"}
+          </p>
           <div className="h-4 overflow-hidden">
             {typingLabel ? (
               <p className="flex items-center gap-1 text-xs text-primary animate-pulse">
@@ -234,7 +255,9 @@ const ChatPage = () => {
                 </span>
               </p>
             ) : (
-              <p className="text-xs text-muted-foreground truncate">{conversation?.listing?.title}</p>
+              <p className="text-xs text-muted-foreground truncate">
+                {conversation?.listing?.title}
+              </p>
             )}
           </div>
         </div>
@@ -249,7 +272,10 @@ const ChatPage = () => {
         <div className="mx-3 mt-2 flex items-center gap-2 rounded-xl bg-warning/10 px-3 py-2">
           <Shield className="h-4 w-4 text-warning flex-shrink-0" />
           <p className="text-xs text-foreground">
-            <span className="font-semibold">{conversation.moderator_profile?.display_name || "A moderator"}</span> has joined to help resolve this dispute.
+            <span className="font-semibold">
+              {conversation.moderator_profile?.display_name || "A moderator"}
+            </span>{" "}
+            has joined to help resolve this dispute.
           </p>
         </div>
       )}
@@ -259,7 +285,9 @@ const ChatPage = () => {
           if (msg.message_type === "system") {
             return (
               <div key={msg.id} className="flex justify-center">
-                <span className="rounded-full bg-escrow/10 px-3 py-1 text-xs text-escrow font-medium">{msg.content}</span>
+                <span className="rounded-full bg-escrow/10 px-3 py-1 text-xs text-escrow font-medium">
+                  {msg.content}
+                </span>
               </div>
             );
           }
@@ -270,19 +298,26 @@ const ChatPage = () => {
           const isThreeWay = !!conversation?.moderator_id;
 
           return (
-            <div key={msg.id} className={`flex flex-col ${isMe ? "items-end" : "items-start"}`}>
+            <div
+              key={msg.id}
+              className={`flex flex-col ${isMe ? "items-end" : "items-start"}`}
+            >
               {isThreeWay && !isMe && (
-                <span className={`mb-0.5 text-[10px] font-medium ${isMod ? "text-destructive" : "text-muted-foreground"}`}>
+                <span
+                  className={`mb-0.5 text-[10px] font-medium ${isMod ? "text-destructive" : "text-muted-foreground"}`}
+                >
                   {senderName}
                 </span>
               )}
-              <div className={`max-w-[75%] rounded-2xl px-3 py-2 text-sm ${
-                isMe
-                  ? "bg-primary text-primary-foreground rounded-br-sm"
-                  : isMod
-                    ? "bg-destructive/10 text-foreground rounded-bl-sm border border-destructive/20"
-                    : "bg-card text-card-foreground rounded-bl-sm shadow-sm"
-              }`}>
+              <div
+                className={`max-w-[75%] rounded-2xl px-3 py-2 text-sm ${
+                  isMe
+                    ? "bg-primary text-primary-foreground rounded-br-sm"
+                    : isMod
+                      ? "bg-destructive/10 text-foreground rounded-bl-sm border border-destructive/20"
+                      : "bg-card text-card-foreground rounded-bl-sm shadow-sm"
+                }`}
+              >
                 {msg.content}
               </div>
             </div>
@@ -291,7 +326,9 @@ const ChatPage = () => {
 
         {(!messages || messages.length === 0) && (
           <div className="text-center py-12">
-            <p className="text-sm text-muted-foreground">Start the conversation!</p>
+            <p className="text-sm text-muted-foreground">
+              Start the conversation!
+            </p>
           </div>
         )}
 
@@ -317,7 +354,9 @@ const ChatPage = () => {
 
       {isModerator && (
         <div className="mx-3 mb-1 rounded-xl bg-destructive/10 px-3 py-1.5 text-center">
-          <p className="text-[10px] font-medium text-destructive">You are moderating this conversation</p>
+          <p className="text-[10px] font-medium text-destructive">
+            You are moderating this conversation
+          </p>
         </div>
       )}
 
@@ -327,7 +366,11 @@ const ChatPage = () => {
           onChange={handleInputChange}
           onKeyDown={handleKeyDown}
           onBlur={broadcastStopTyping}
-          placeholder={isParticipant ? "Type a message..." : "You are not part of this conversation"}
+          placeholder={
+            isParticipant
+              ? "Type a message..."
+              : "You are not part of this conversation"
+          }
           disabled={!isParticipant}
           className="flex-1 rounded-xl border border-input bg-background px-3 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-50"
         />
