@@ -31,8 +31,13 @@ router.post("/push/subscribe", async (req, res) => {
     subscription: { endpoint: string; keys: { p256dh: string; auth: string } };
   };
 
-  if (!userId || !subscription?.endpoint) {
-    res.status(400).json({ error: "userId and subscription required" });
+  if (
+    !userId ||
+    !subscription?.endpoint ||
+    !subscription?.keys?.p256dh ||
+    !subscription?.keys?.auth
+  ) {
+    res.status(400).json({ error: "Invalid subscription payload" });
     return;
   }
 
@@ -52,13 +57,13 @@ router.post("/push/subscribe", async (req, res) => {
 
     if (error) {
       req.log.error({ error }, "Failed to store push subscription");
-      res.status(500).json({ error: "Failed to save subscription" });
+      res.status(500).json({ error: "An internal server error occurred" });
       return;
     }
     res.json({ ok: true });
   } catch (err: any) {
     req.log.error({ err }, "push/subscribe error");
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "An internal server error occurred" });
   }
 });
 
@@ -70,14 +75,21 @@ router.delete("/push/unsubscribe", async (req, res) => {
   }
   try {
     const supabase = getSupabase();
-    await supabase
+    const { error } = await supabase
       .from("push_subscriptions")
       .delete()
       .eq("user_id", userId)
       .eq("endpoint", endpoint);
+
+    if (error) {
+      req.log.error({ error }, "Failed to delete push subscription");
+      res.status(500).json({ error: "An internal server error occurred" });
+      return;
+    }
     res.json({ ok: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    req.log.error({ err }, "push/unsubscribe error");
+    res.status(500).json({ error: "An internal server error occurred" });
   }
 });
 
@@ -94,6 +106,16 @@ router.post("/push/notify", async (req, res) => {
     return;
   }
 
+  if (title && title.length > 100) {
+    res.status(400).json({ error: "Title too long" });
+    return;
+  }
+
+  if (body.length > 500) {
+    res.status(400).json({ error: "Body too long" });
+    return;
+  }
+
   try {
     ensureVapid();
     const supabase = getSupabase();
@@ -105,7 +127,7 @@ router.post("/push/notify", async (req, res) => {
 
     if (error) {
       req.log.error({ error }, "Failed to fetch push subscriptions");
-      res.status(500).json({ error: "Failed to fetch subscriptions" });
+      res.status(500).json({ error: "An internal server error occurred" });
       return;
     }
 
@@ -137,7 +159,7 @@ router.post("/push/notify", async (req, res) => {
     res.json({ sent, failed });
   } catch (err: any) {
     req.log.error({ err }, "push/notify error");
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "An internal server error occurred" });
   }
 });
 
