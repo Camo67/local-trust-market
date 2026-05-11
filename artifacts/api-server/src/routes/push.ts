@@ -1,31 +1,27 @@
 import { Router } from "express";
 import webpush from "web-push";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { getSupabase } from "../lib/supabase";
+import { requireAuth } from "../middlewares/auth";
 
 const router = Router();
-
-let _supabase: SupabaseClient | null = null;
-function getSupabase() {
-  if (_supabase) return _supabase;
-  const url = process.env["VITE_SUPABASE_URL"];
-  const key = process.env["VITE_SUPABASE_ANON_KEY"];
-  if (!url || !key) throw new Error("Supabase env vars not set");
-  _supabase = createClient(url, key);
-  return _supabase;
-}
 
 let _vapidSet = false;
 function ensureVapid() {
   if (_vapidSet) return;
   const pub = process.env["VAPID_PUBLIC_KEY"];
   const priv = process.env["VAPID_PRIVATE_KEY"];
-  const contact = process.env["VAPID_CONTACT"] || "mailto:admin@buddiesworldwide.app";
+  const contact =
+    process.env["VAPID_CONTACT"] || "mailto:admin@buddiesworldwide.app";
   if (!pub || !priv) throw new Error("VAPID keys not set");
   webpush.setVapidDetails(contact, pub, priv);
   _vapidSet = true;
 }
 
-router.post("/push/subscribe", async (req, res) => {
+/**
+ * Security: Added requireAuth middleware.
+ * Verification: Checks that the userId being subscribed matches the authenticated user.
+ */
+router.post("/push/subscribe", requireAuth, async (req, res) => {
   const { userId, subscription } = req.body as {
     userId: string;
     subscription: { endpoint: string; keys: { p256dh: string; auth: string } };
@@ -33,6 +29,16 @@ router.post("/push/subscribe", async (req, res) => {
 
   if (!userId || !subscription?.endpoint) {
     res.status(400).json({ error: "userId and subscription required" });
+    return;
+  }
+
+  // Security: Authorization check
+  if (req.user?.id !== userId) {
+    req.log.warn(
+      { authUserId: req.user?.id, requestedUserId: userId },
+      "Unauthorized push subscription attempt",
+    );
+    res.status(403).json({ error: "Forbidden: Cannot subscribe for other users" });
     return;
   }
 
@@ -47,7 +53,7 @@ router.post("/push/subscribe", async (req, res) => {
           p256dh: subscription.keys.p256dh,
           auth: subscription.keys.auth,
         },
-        { onConflict: "user_id,endpoint" }
+        { onConflict: "user_id,endpoint" },
       );
 
     if (error) {
@@ -58,16 +64,34 @@ router.post("/push/subscribe", async (req, res) => {
     res.json({ ok: true });
   } catch (err: any) {
     req.log.error({ err }, "push/subscribe error");
-    res.status(500).json({ error: err.message });
+    // Security: Do not leak error.message to the client
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
-router.delete("/push/unsubscribe", async (req, res) => {
+/**
+ * Security: Added requireAuth middleware.
+ * Verification: Checks that the userId being unsubscribed matches the authenticated user.
+ */
+router.delete("/push/unsubscribe", requireAuth, async (req, res) => {
   const { userId, endpoint } = req.body as { userId: string; endpoint: string };
   if (!userId || !endpoint) {
     res.status(400).json({ error: "userId and endpoint required" });
     return;
   }
+
+  // Security: Authorization check
+  if (req.user?.id !== userId) {
+    req.log.warn(
+      { authUserId: req.user?.id, requestedUserId: userId },
+      "Unauthorized push unsubscription attempt",
+    );
+    res
+      .status(403)
+      .json({ error: "Forbidden: Cannot unsubscribe for other users" });
+    return;
+  }
+
   try {
     const supabase = getSupabase();
     await supabase
@@ -77,11 +101,18 @@ router.delete("/push/unsubscribe", async (req, res) => {
       .eq("endpoint", endpoint);
     res.json({ ok: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    req.log.error({ err }, "push/unsubscribe error");
+    // Security: Do not leak error.message to the client
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
-router.post("/push/notify", async (req, res) => {
+/**
+ * Security: Added requireAuth middleware.
+ * This endpoint allows any authenticated user to send a notification to others.
+ * In a real-world app, we might want to verify if the sender is part of the conversation.
+ */
+router.post("/push/notify", requireAuth, async (req, res) => {
   const { recipientUserIds, title, body, conversationId } = req.body as {
     recipientUserIds: string[];
     title: string;
@@ -124,10 +155,13 @@ router.post("/push/notify", async (req, res) => {
     const results = await Promise.allSettled(
       (subs as any[]).map((sub) =>
         webpush.sendNotification(
-          { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-          payload
-        )
-      )
+          {
+            endpoint: sub.endpoint,
+            keys: { p256dh: sub.p256dh, auth: sub.auth },
+          },
+          payload,
+        ),
+      ),
     );
 
     const sent = results.filter((r) => r.status === "fulfilled").length;
@@ -137,7 +171,8 @@ router.post("/push/notify", async (req, res) => {
     res.json({ sent, failed });
   } catch (err: any) {
     req.log.error({ err }, "push/notify error");
-    res.status(500).json({ error: err.message });
+    // Security: Do not leak error.message to the client
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
