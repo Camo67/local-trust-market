@@ -1,10 +1,12 @@
-import { Router } from "express";
+import { Router, type Request } from "express";
 import webpush from "web-push";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 const router = Router();
 
 let _supabase: SupabaseClient | null = null;
+let _serviceSupabase: SupabaseClient | null = null;
+
 function getSupabase() {
   if (_supabase) return _supabase;
   const url = process.env["VITE_SUPABASE_URL"];
@@ -12,6 +14,35 @@ function getSupabase() {
   if (!url || !key) throw new Error("Supabase env vars not set");
   _supabase = createClient(url, key);
   return _supabase;
+}
+
+function getServiceSupabase() {
+  if (_serviceSupabase) return _serviceSupabase;
+  const url = process.env["VITE_SUPABASE_URL"];
+  const key = process.env["SUPABASE_SERVICE_ROLE_KEY"];
+  if (!url || !key) throw new Error("SUPABASE_SERVICE_ROLE_KEY is required for server push notifications");
+  _serviceSupabase = createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  return _serviceSupabase;
+}
+
+function getBearerToken(req: Request) {
+  const header = req.headers.authorization;
+  if (!header?.startsWith("Bearer ")) return null;
+  return header.slice("Bearer ".length).trim();
+}
+
+function getUserSupabase(req: Request) {
+  const token = getBearerToken(req);
+  if (!token) throw new Error("Authorization bearer token required");
+  const url = process.env["VITE_SUPABASE_URL"];
+  const key = process.env["VITE_SUPABASE_ANON_KEY"];
+  if (!url || !key) throw new Error("Supabase env vars not set");
+  return createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { Authorization: `Bearer ${token}` } },
+  });
 }
 
 let _vapidSet = false;
@@ -37,7 +68,7 @@ router.post("/push/subscribe", async (req, res) => {
   }
 
   try {
-    const supabase = getSupabase();
+    const supabase = getUserSupabase(req);
     const { error } = await supabase
       .from("push_subscriptions")
       .upsert(
@@ -69,7 +100,7 @@ router.delete("/push/unsubscribe", async (req, res) => {
     return;
   }
   try {
-    const supabase = getSupabase();
+    const supabase = getUserSupabase(req);
     await supabase
       .from("push_subscriptions")
       .delete()
@@ -96,7 +127,7 @@ router.post("/push/notify", async (req, res) => {
 
   try {
     ensureVapid();
-    const supabase = getSupabase();
+    const supabase = getServiceSupabase();
 
     const { data: subs, error } = await supabase
       .from("push_subscriptions")
