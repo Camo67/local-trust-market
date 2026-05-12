@@ -83,13 +83,13 @@ router.post("/push/subscribe", async (req, res) => {
 
     if (error) {
       req.log.error({ error }, "Failed to store push subscription");
-      res.status(500).json({ error: "Failed to save subscription" });
+      res.status(500).json({ error: "Internal server error" });
       return;
     }
     res.json({ ok: true });
   } catch (err: any) {
     req.log.error({ err }, "push/subscribe error");
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -108,7 +108,8 @@ router.delete("/push/unsubscribe", async (req, res) => {
       .eq("endpoint", endpoint);
     res.json({ ok: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    req.log.error({ err }, "push/unsubscribe error");
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -136,7 +137,7 @@ router.post("/push/notify", async (req, res) => {
 
     if (error) {
       req.log.error({ error }, "Failed to fetch push subscriptions");
-      res.status(500).json({ error: "Failed to fetch subscriptions" });
+      res.status(500).json({ error: "Internal server error" });
       return;
     }
 
@@ -168,7 +169,7 @@ router.post("/push/notify", async (req, res) => {
     res.json({ sent, failed });
   } catch (err: any) {
     req.log.error({ err }, "push/notify error");
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
