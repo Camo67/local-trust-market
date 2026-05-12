@@ -1,6 +1,6 @@
 import { Router } from "express";
 import webpush from "web-push";
-import { getSupabase } from "../lib/supabase";
+import { getSupabase, getSupabaseAdmin } from "../lib/supabase";
 import { authMiddleware } from "../middlewares/auth";
 
 const router = Router();
@@ -38,7 +38,7 @@ router.post("/push/subscribe", async (req, res) => {
   }
 
   try {
-    const supabase = getSupabase();
+    const supabase = getSupabaseAdmin();
     const { error } = await supabase
       .from("push_subscriptions")
       .upsert(
@@ -78,7 +78,7 @@ router.delete("/push/unsubscribe", async (req, res) => {
     return;
   }
   try {
-    const supabase = getSupabase();
+    const supabase = getSupabaseAdmin();
     await supabase
       .from("push_subscriptions")
       .delete()
@@ -105,7 +105,7 @@ router.post("/push/notify", async (req, res) => {
 
   try {
     ensureVapid();
-    const supabase = getSupabase();
+    const supabase = getSupabaseAdmin();
 
     const { data: subs, error } = await supabase
       .from("push_subscriptions")

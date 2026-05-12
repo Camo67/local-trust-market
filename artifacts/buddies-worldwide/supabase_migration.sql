@@ -131,7 +131,6 @@ CREATE TABLE IF NOT EXISTS public.listing_images (
 ALTER TABLE public.listing_images ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY "Listing images are viewable by everyone"
-  ON public.listing_images FOR SELECT USING (true);
 
 CREATE POLICY "Sellers can insert listing images"
   ON public.listing_images FOR INSERT
@@ -203,6 +202,7 @@ CREATE POLICY "Users manage own push subscriptions"
   WITH CHECK (auth.uid() = user_id);
 
 -- Server (anon key) can read all subscriptions to deliver pushes
-CREATE POLICY "Anon can read push subscriptions"
+-- Server (service role) should be used for cross-user push delivery
+DROP POLICY IF EXISTS "Anon can read push subscriptions"
   ON public.push_subscriptions FOR SELECT
-  USING (true);
+  USING (auth.uid() = user_id);
