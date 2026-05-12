@@ -1,18 +1,9 @@
 import { Router } from "express";
 import webpush from "web-push";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { getSupabase } from "../lib/supabase";
+import { authMiddleware } from "../middlewares/auth";
 
 const router = Router();
-
-let _supabase: SupabaseClient | null = null;
-function getSupabase() {
-  if (_supabase) return _supabase;
-  const url = process.env["VITE_SUPABASE_URL"];
-  const key = process.env["VITE_SUPABASE_ANON_KEY"];
-  if (!url || !key) throw new Error("Supabase env vars not set");
-  _supabase = createClient(url, key);
-  return _supabase;
-}
 
 let _vapidSet = false;
 function ensureVapid() {
@@ -25,11 +16,21 @@ function ensureVapid() {
   _vapidSet = true;
 }
 
+// All push routes require authentication
+router.use(authMiddleware);
+
 router.post("/push/subscribe", async (req, res) => {
   const { userId, subscription } = req.body as {
     userId: string;
     subscription: { endpoint: string; keys: { p256dh: string; auth: string } };
   };
+
+  // Authorization check: User can only subscribe for themselves
+  // @ts-ignore
+  if (userId !== req.user.id) {
+    res.status(403).json({ error: "Unauthorized: You can only subscribe for yourself" });
+    return;
+  }
 
   if (!userId || !subscription?.endpoint) {
     res.status(400).json({ error: "userId and subscription required" });
@@ -64,6 +65,14 @@ router.post("/push/subscribe", async (req, res) => {
 
 router.delete("/push/unsubscribe", async (req, res) => {
   const { userId, endpoint } = req.body as { userId: string; endpoint: string };
+
+  // Authorization check: User can only unsubscribe for themselves
+  // @ts-ignore
+  if (userId !== req.user.id) {
+    res.status(403).json({ error: "Unauthorized: You can only unsubscribe for yourself" });
+    return;
+  }
+
   if (!userId || !endpoint) {
     res.status(400).json({ error: "userId and endpoint required" });
     return;
