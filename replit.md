@@ -24,6 +24,7 @@ A safe local marketplace app for South African community trading, with escrow pa
 - `artifacts/buddies-worldwide/src/hooks/` — useListings, useConversations, useOrders
 - `artifacts/buddies-worldwide/src/contexts/AuthContext.tsx` — auth state
 - `artifacts/buddies-worldwide/supabase_migration.sql` — **run this in Supabase SQL Editor** to apply new schema
+- `artifacts/buddies-worldwide/supabase/email-templates/` — Supabase Auth email templates to paste into the dashboard
 
 ## Architecture decisions
 

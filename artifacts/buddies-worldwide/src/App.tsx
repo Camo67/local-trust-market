@@ -15,6 +15,7 @@ import ChatPage from "./pages/ChatPage";
 import AuthPage from "./pages/AuthPage";
 import VerifyPage from "./pages/VerifyPage";
 import AdminPage from "./pages/AdminPage";
+import ResetPasswordPage from "./pages/ResetPasswordPage";
 import NotFound from "./pages/not-found";
 
 const queryClient = new QueryClient();
@@ -38,12 +39,14 @@ const AppLayout = () => {
   const hideNav =
     location.pathname.startsWith("/chat/") ||
     location.pathname === "/auth" ||
+    location.pathname === "/reset-password" ||
     location.pathname === "/admin";
 
   return (
     <>
       <Routes>
         <Route path="/auth" element={<AuthPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/" element={<ProtectedRoute><HomePage /></ProtectedRoute>} />
         <Route path="/search" element={<ProtectedRoute><SearchPage /></ProtectedRoute>} />
         <Route path="/sell" element={<ProtectedRoute><SellPage /></ProtectedRoute>} />

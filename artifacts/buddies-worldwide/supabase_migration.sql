@@ -31,14 +31,17 @@ CREATE TABLE IF NOT EXISTS public.verification_requests (
 
 ALTER TABLE public.verification_requests ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users can view own requests" ON public.verification_requests;
 CREATE POLICY "Users can view own requests"
   ON public.verification_requests FOR SELECT
   USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users can create own requests" ON public.verification_requests;
 CREATE POLICY "Users can create own requests"
   ON public.verification_requests FOR INSERT
   WITH CHECK (auth.uid() = user_id);
 
+DROP TRIGGER IF EXISTS update_verification_requests_updated_at ON public.verification_requests;
 CREATE TRIGGER update_verification_requests_updated_at
   BEFORE UPDATE ON public.verification_requests
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
@@ -69,6 +72,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
+DROP TRIGGER IF EXISTS on_verification_request_change ON public.verification_requests;
 CREATE TRIGGER on_verification_request_change
   AFTER INSERT OR UPDATE OF status ON public.verification_requests
   FOR EACH ROW EXECUTE FUNCTION public.sync_verification_status();
@@ -130,9 +134,11 @@ CREATE TABLE IF NOT EXISTS public.listing_images (
 
 ALTER TABLE public.listing_images ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Listing images are viewable by everyone" ON public.listing_images;
 CREATE POLICY "Listing images are viewable by everyone"
   ON public.listing_images FOR SELECT USING (true);
 
+DROP POLICY IF EXISTS "Sellers can insert listing images" ON public.listing_images;
 CREATE POLICY "Sellers can insert listing images"
   ON public.listing_images FOR INSERT
   WITH CHECK (
@@ -142,6 +148,7 @@ CREATE POLICY "Sellers can insert listing images"
     )
   );
 
+DROP POLICY IF EXISTS "Sellers can delete own listing images" ON public.listing_images;
 CREATE POLICY "Sellers can delete own listing images"
   ON public.listing_images FOR DELETE
   USING (
@@ -158,7 +165,8 @@ INSERT INTO storage.buckets (id, name, public)
   VALUES ('verification-docs', 'verification-docs', false)
   ON CONFLICT (id) DO NOTHING;
 
--- Only the owner and moderators can view their own docs
+-- Only the owner can manage their own docs.
+DROP POLICY IF EXISTS "Users can upload own verification docs" ON storage.objects;
 CREATE POLICY "Users can upload own verification docs"
   ON storage.objects FOR INSERT
   WITH CHECK (
@@ -167,6 +175,7 @@ CREATE POLICY "Users can upload own verification docs"
     AND auth.uid()::text = (storage.foldername(name))[1]
   );
 
+DROP POLICY IF EXISTS "Users can view own verification docs" ON storage.objects;
 CREATE POLICY "Users can view own verification docs"
   ON storage.objects FOR SELECT
   USING (
@@ -174,6 +183,7 @@ CREATE POLICY "Users can view own verification docs"
     AND auth.uid()::text = (storage.foldername(name))[1]
   );
 
+DROP POLICY IF EXISTS "Users can delete own verification docs" ON storage.objects;
 CREATE POLICY "Users can delete own verification docs"
   ON storage.objects FOR DELETE
   USING (
@@ -196,13 +206,16 @@ CREATE TABLE IF NOT EXISTS public.push_subscriptions (
 
 ALTER TABLE public.push_subscriptions ENABLE ROW LEVEL SECURITY;
 
--- Users manage their own subscriptions
+-- Users manage their own subscriptions.
+DROP POLICY IF EXISTS "Users manage own push subscriptions" ON public.push_subscriptions;
 CREATE POLICY "Users manage own push subscriptions"
   ON public.push_subscriptions FOR ALL
   USING (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
 
--- Server (anon key) can read all subscriptions to deliver pushes
+-- Server-side push delivery must use the service-role key instead of exposing
+-- subscriptions to anon clients.
+DROP POLICY IF EXISTS "Anon can read push subscriptions" ON public.push_subscriptions;
 CREATE POLICY "Anon can read push subscriptions"
   ON public.push_subscriptions FOR SELECT
-  USING (true);
+  USING (false);
