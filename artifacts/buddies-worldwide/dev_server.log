@@ -1,0 +1,11 @@
+
+> @workspace/buddies-worldwide@0.0.0 dev /app/artifacts/buddies-worldwide
+> vite --config vite.config.ts --host 0.0.0.0
+
+
+  VITE v7.3.3  ready in 416 ms
+
+  ➜  Local:   http://localhost:3000/
+  ➜  Network: http://192.168.0.2:3000/
+[RUNTIME_ERROR]{"type":"runtime-error","timestamp":1778573591153,"name":"Error","message":"Missing Supabase environment variables: VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are required.","stack":"    at /app/artifacts/buddies-worldwide/src/integrations/supabase/client.ts:8:9","loc":{"line":8,"column":9,"file":"/app/artifacts/buddies-worldwide/src/integrations/supabase/client.ts"},"frame":"6  |  \n7  |  if (!supabaseUrl || !supabaseAnonKey) {\n8  |    throw new Error(\"Missing Supabase environment variables: VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are required.\");\n   |          ^\n9  |  }\n10 |  "}
+ ELIFECYCLE  Command failed with exit code 143.

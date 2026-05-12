@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ArrowLeft, Upload, CheckCircle, Clock, X, ShieldCheck } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -39,11 +39,55 @@ const VerifyPage = () => {
     enabled: !!user,
   });
 
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      const text = e.clipboardData?.getData("text");
+      if (text && (text.includes("facebook.com") || text.includes("fb.me") || text.startsWith("http"))) {
+        e.preventDefault();
+        toast({
+          title: "URL Detected",
+          description: "Please upload a direct image file (.jpg/.png) instead of a link. Download your profile photo locally and upload the file directly.",
+          variant: "destructive",
+        });
+        logFailedAttempt(text, "text/plain", "Attempted to paste a URL");
+      }
+    };
+
+    window.addEventListener("paste", handlePaste);
+    return () => window.removeEventListener("paste", handlePaste);
+  }, [toast]);
+  const logFailedAttempt = (url?: string, mimeType?: string, reason?: string) => {
+    console.error("[Verification Upload Failure]", {
+      userId: user?.id,
+      timestamp: new Date().toISOString(),
+      url,
+      mimeType,
+      reason,
+    });
+  };
+
   const handleFileSelect = (setter: (v: DocFile) => void) => (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 10 * 1024 * 1024) {
-      toast({ title: "File too large", description: "Max 10MB per document", variant: "destructive" });
+
+    const allowedTypes = ["image/jpeg", "image/png"];
+    if (!allowedTypes.includes(file.type)) {
+      toast({
+        title: "Invalid file type",
+        description: "Please upload a direct image file (.jpg/.png) instead of a link. Download your profile photo locally and upload the file directly.",
+        variant: "destructive",
+      });
+      logFailedAttempt(undefined, file.type, "Invalid MIME type");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast({
+        title: "File too large",
+        description: "Max 5MB per document. Download your profile photo locally and upload the file directly.",
+        variant: "destructive",
+      });
+      logFailedAttempt(undefined, file.type, "File size exceeds 5MB");
       return;
     }
     setter({ file, preview: URL.createObjectURL(file) });
@@ -155,8 +199,8 @@ const VerifyPage = () => {
       ) : (
         <label className="mt-1 flex h-36 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-primary/30 bg-primary/5 gap-2">
           <Upload className="h-6 w-6 text-primary/60" />
-          <span className="text-xs text-muted-foreground text-center px-4">Tap to upload (JPG, PNG, max 10MB)</span>
-          <input type="file" accept="image/*,application/pdf" className="hidden" onChange={onChange} />
+          <span className="text-xs text-muted-foreground text-center px-4">Tap to upload (JPG, PNG, max 5MB). Download your profile photo locally and upload the file directly.</span>
+          <input type="file" accept="image/jpeg,image/png" className="hidden" onChange={onChange} />
         </label>
       )}
     </div>
