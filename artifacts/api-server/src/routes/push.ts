@@ -1,21 +1,12 @@
 import { Router, type Request } from "express";
 import webpush from "web-push";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { getSupabase } from "../lib/supabase";
 import { authMiddleware } from "../middlewares/auth";
 
 const router = Router();
 
-let _supabase: SupabaseClient | null = null;
 let _serviceSupabase: SupabaseClient | null = null;
-
-function getSupabase() {
-  if (_supabase) return _supabase;
-  const url = process.env["VITE_SUPABASE_URL"];
-  const key = process.env["VITE_SUPABASE_ANON_KEY"];
-  if (!url || !key) throw new Error("Supabase env vars not set");
-  _supabase = createClient(url, key);
-  return _supabase;
-}
 
 function getServiceSupabase() {
   if (_serviceSupabase) return _serviceSupabase;
@@ -94,13 +85,13 @@ router.post("/push/subscribe", async (req, res) => {
 
     if (error) {
       req.log.error({ error }, "Failed to store push subscription");
-      res.status(500).json({ error: "Failed to save subscription" });
+      res.status(500).json({ error: "Internal server error" });
       return;
     }
     res.json({ ok: true });
   } catch (err: any) {
     req.log.error({ err }, "push/subscribe error");
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -127,7 +118,8 @@ router.delete("/push/unsubscribe", async (req, res) => {
       .eq("endpoint", endpoint);
     res.json({ ok: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    req.log.error({ err }, "push/unsubscribe error");
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -147,6 +139,39 @@ router.post("/push/notify", async (req, res) => {
   try {
     ensureVapid();
     const supabase = getServiceSupabase();
+
+    // Authorization check: Verify sender and recipients are participants in the conversation
+    const { data: conversation, error: convError } = await supabase
+      .from("conversations")
+      .select("buyer_id, seller_id, moderator_id")
+      .eq("id", conversationId)
+      .single();
+
+    if (convError || !conversation) {
+      req.log.warn({ conversationId, convError }, "Conversation not found for push notify");
+      res.status(404).json({ error: "Conversation not found" });
+      return;
+    }
+
+    const participants = new Set([
+      conversation.buyer_id,
+      conversation.seller_id,
+      conversation.moderator_id,
+    ].filter(Boolean));
+
+    // @ts-ignore
+    if (!participants.has(req.user.id)) {
+      // @ts-ignore
+      req.log.warn({ userId: req.user.id, conversationId }, "Unauthorized sender for push notify");
+      res.status(403).json({ error: "Unauthorized: You are not a participant in this conversation" });
+      return;
+    }
+
+    if (!recipientUserIds.every(id => participants.has(id))) {
+      req.log.warn({ recipientUserIds, conversationId }, "Unauthorized recipients for push notify");
+      res.status(403).json({ error: "Unauthorized: One or more recipients are not participants in this conversation" });
+      return;
+    }
 
     const { data: subs, error } = await supabase
       .from("push_subscriptions")
@@ -187,7 +212,7 @@ router.post("/push/notify", async (req, res) => {
     res.json({ sent, failed });
   } catch (err: any) {
     req.log.error({ err }, "push/notify error");
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
