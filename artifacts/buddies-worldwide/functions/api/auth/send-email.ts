@@ -242,7 +242,9 @@ export const onRequestPost: PagesFunction<Env> = async ({ request, env }) => {
 
     return json({});
   } catch (error: any) {
-    return json({ error: { message: error.message || "Email hook failed" } }, 401);
+    // Log error for debugging, but don't leak details to the client
+    console.error("Email hook failed:", error);
+    return json({ error: { message: "Internal server error" } }, 401);
   }
 };
 
