@@ -18,8 +18,7 @@ export const authMiddleware = async (req: Request, res: Response, next: NextFunc
       return;
     }
 
-    // @ts-ignore
-    req.user = user;
+    (req as any).user = user;
     next();
   } catch (err) {
     res.status(401).json({ error: "Authentication failed" });
