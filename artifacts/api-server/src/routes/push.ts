@@ -1,21 +1,16 @@
 import { Router, type Request } from "express";
+import { createClient, type SupabaseClient, type User } from "@supabase/supabase-js";
 import webpush from "web-push";
 import { getSupabase } from "../lib/supabase";
 import { authMiddleware } from "../middlewares/auth";
 
+interface AuthenticatedRequest extends Request {
+  user: User;
+}
+
 const router = Router();
 
-let _supabase: SupabaseClient | null = null;
 let _serviceSupabase: SupabaseClient | null = null;
-
-function getSupabase() {
-  if (_supabase) return _supabase;
-  const url = process.env["VITE_SUPABASE_URL"];
-  const key = process.env["VITE_SUPABASE_ANON_KEY"];
-  if (!url || !key) throw new Error("Supabase env vars not set");
-  _supabase = createClient(url, key);
-  return _supabase;
-}
 
 function getServiceSupabase() {
   if (_serviceSupabase) return _serviceSupabase;
@@ -66,9 +61,10 @@ router.post("/push/subscribe", async (req, res) => {
     subscription: { endpoint: string; keys: { p256dh: string; auth: string } };
   };
 
+  const authReq = req as AuthenticatedRequest;
+
   // Authorization check: User can only subscribe for themselves
-  // @ts-ignore
-  if (userId !== req.user.id) {
+  if (userId !== authReq.user.id) {
     res.status(403).json({ error: "Unauthorized: You can only subscribe for yourself" });
     return;
   }
@@ -100,16 +96,17 @@ router.post("/push/subscribe", async (req, res) => {
     res.json({ ok: true });
   } catch (err: any) {
     req.log.error({ err }, "push/subscribe error");
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
 router.delete("/push/unsubscribe", async (req, res) => {
   const { userId, endpoint } = req.body as { userId: string; endpoint: string };
 
+  const authReq = req as AuthenticatedRequest;
+
   // Authorization check: User can only unsubscribe for themselves
-  // @ts-ignore
-  if (userId !== req.user.id) {
+  if (userId !== authReq.user.id) {
     res.status(403).json({ error: "Unauthorized: You can only unsubscribe for yourself" });
     return;
   }
@@ -127,7 +124,8 @@ router.delete("/push/unsubscribe", async (req, res) => {
       .eq("endpoint", endpoint);
     res.json({ ok: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    req.log.error({ err }, "push/unsubscribe error");
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -139,14 +137,45 @@ router.post("/push/notify", async (req, res) => {
     conversationId: string;
   };
 
-  if (!recipientUserIds?.length || !body) {
-    res.status(400).json({ error: "recipientUserIds and body required" });
+  const authReq = req as AuthenticatedRequest;
+
+  if (!recipientUserIds?.length || !body || !conversationId) {
+    res.status(400).json({ error: "recipientUserIds, body and conversationId required" });
     return;
   }
 
   try {
     ensureVapid();
     const supabase = getServiceSupabase();
+
+    // Participant-matching authorization check
+    const { data: conversation, error: convError } = await supabase
+      .from("conversations")
+      .select("buyer_id, seller_id, moderator_id")
+      .eq("id", conversationId)
+      .single();
+
+    if (convError || !conversation) {
+      req.log.error({ convError, conversationId }, "Conversation not found for push notify");
+      res.status(404).json({ error: "Conversation not found" });
+      return;
+    }
+
+    const participants = [
+      conversation.buyer_id,
+      conversation.seller_id,
+      conversation.moderator_id,
+    ].filter(Boolean);
+
+    if (!participants.includes(authReq.user.id)) {
+      res.status(403).json({ error: "Forbidden: You are not a participant in this conversation" });
+      return;
+    }
+
+    if (!recipientUserIds.every((id) => participants.includes(id))) {
+      res.status(400).json({ error: "One or more recipients are not participants in this conversation" });
+      return;
+    }
 
     const { data: subs, error } = await supabase
       .from("push_subscriptions")
@@ -187,7 +216,7 @@ router.post("/push/notify", async (req, res) => {
     res.json({ sent, failed });
   } catch (err: any) {
     req.log.error({ err }, "push/notify error");
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
