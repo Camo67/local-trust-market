@@ -1,21 +1,12 @@
 import { Router, type Request } from "express";
 import webpush from "web-push";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { getSupabase } from "../lib/supabase";
 import { authMiddleware } from "../middlewares/auth";
 
 const router = Router();
 
-let _supabase: SupabaseClient | null = null;
 let _serviceSupabase: SupabaseClient | null = null;
-
-function getSupabase() {
-  if (_supabase) return _supabase;
-  const url = process.env["VITE_SUPABASE_URL"];
-  const key = process.env["VITE_SUPABASE_ANON_KEY"];
-  if (!url || !key) throw new Error("Supabase env vars not set");
-  _supabase = createClient(url, key);
-  return _supabase;
-}
 
 function getServiceSupabase() {
   if (_serviceSupabase) return _serviceSupabase;
@@ -93,14 +84,16 @@ router.post("/push/subscribe", async (req, res) => {
       );
 
     if (error) {
+      // @ts-ignore
       req.log.error({ error }, "Failed to store push subscription");
       res.status(500).json({ error: "Failed to save subscription" });
       return;
     }
     res.json({ ok: true });
   } catch (err: any) {
+    // @ts-ignore
     req.log.error({ err }, "push/subscribe error");
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -127,7 +120,9 @@ router.delete("/push/unsubscribe", async (req, res) => {
       .eq("endpoint", endpoint);
     res.json({ ok: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    // @ts-ignore
+    req.log.error({ err }, "push/unsubscribe error");
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -182,12 +177,14 @@ router.post("/push/notify", async (req, res) => {
 
     const sent = results.filter((r) => r.status === "fulfilled").length;
     const failed = results.filter((r) => r.status === "rejected").length;
+    // @ts-ignore
     if (failed > 0) req.log.warn({ sent, failed }, "Some pushes failed");
 
     res.json({ sent, failed });
   } catch (err: any) {
+    // @ts-ignore
     req.log.error({ err }, "push/notify error");
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
