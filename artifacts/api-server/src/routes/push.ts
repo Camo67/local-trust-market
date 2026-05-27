@@ -1,21 +1,11 @@
 import { Router, type Request } from "express";
 import webpush from "web-push";
-import { getSupabase } from "../lib/supabase";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { authMiddleware } from "../middlewares/auth";
 
 const router = Router();
 
-let _supabase: SupabaseClient | null = null;
 let _serviceSupabase: SupabaseClient | null = null;
-
-function getSupabase() {
-  if (_supabase) return _supabase;
-  const url = process.env["VITE_SUPABASE_URL"];
-  const key = process.env["VITE_SUPABASE_ANON_KEY"];
-  if (!url || !key) throw new Error("Supabase env vars not set");
-  _supabase = createClient(url, key);
-  return _supabase;
-}
 
 function getServiceSupabase() {
   if (_serviceSupabase) return _serviceSupabase;
@@ -61,20 +51,15 @@ function ensureVapid() {
 router.use(authMiddleware);
 
 router.post("/push/subscribe", async (req, res) => {
-  const { userId, subscription } = req.body as {
-    userId: string;
+  const { subscription } = req.body as {
     subscription: { endpoint: string; keys: { p256dh: string; auth: string } };
   };
 
-  // Authorization check: User can only subscribe for themselves
   // @ts-ignore
-  if (userId !== req.user.id) {
-    res.status(403).json({ error: "Unauthorized: You can only subscribe for yourself" });
-    return;
-  }
+  const userId = req.user.id;
 
   if (!userId || !subscription?.endpoint) {
-    res.status(400).json({ error: "userId and subscription required" });
+    res.status(400).json({ error: "subscription required" });
     return;
   }
 
@@ -99,23 +84,20 @@ router.post("/push/subscribe", async (req, res) => {
     }
     res.json({ ok: true });
   } catch (err: any) {
+    // @ts-ignore
     req.log.error({ err }, "push/subscribe error");
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
 router.delete("/push/unsubscribe", async (req, res) => {
-  const { userId, endpoint } = req.body as { userId: string; endpoint: string };
+  const { endpoint } = req.body as { endpoint: string };
 
-  // Authorization check: User can only unsubscribe for themselves
   // @ts-ignore
-  if (userId !== req.user.id) {
-    res.status(403).json({ error: "Unauthorized: You can only unsubscribe for yourself" });
-    return;
-  }
+  const userId = req.user.id;
 
   if (!userId || !endpoint) {
-    res.status(400).json({ error: "userId and endpoint required" });
+    res.status(400).json({ error: "endpoint required" });
     return;
   }
   try {
@@ -127,7 +109,9 @@ router.delete("/push/unsubscribe", async (req, res) => {
       .eq("endpoint", endpoint);
     res.json({ ok: true });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    // @ts-ignore
+    req.log.error({ err }, "push/unsubscribe error");
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
@@ -139,14 +123,46 @@ router.post("/push/notify", async (req, res) => {
     conversationId: string;
   };
 
-  if (!recipientUserIds?.length || !body) {
-    res.status(400).json({ error: "recipientUserIds and body required" });
+  if (!recipientUserIds?.length || !body || !conversationId) {
+    res.status(400).json({ error: "recipientUserIds, body, and conversationId required" });
     return;
   }
 
   try {
     ensureVapid();
     const supabase = getServiceSupabase();
+
+    // Authorization check: Verify sender and recipients are participants of the conversation
+    const { data: conversation, error: convError } = await supabase
+      .from("conversations")
+      .select("buyer_id, seller_id, moderator_id")
+      .eq("id", conversationId)
+      .single();
+
+    if (convError || !conversation) {
+      // @ts-ignore
+      req.log.error({ convError, conversationId }, "Conversation not found or error fetching it");
+      res.status(404).json({ error: "Conversation not found" });
+      return;
+    }
+
+    const participants = new Set([
+      conversation.buyer_id,
+      conversation.seller_id,
+      conversation.moderator_id,
+    ].filter(Boolean));
+
+    // @ts-ignore
+    if (!participants.has(req.user.id)) {
+      res.status(403).json({ error: "Unauthorized: You are not a participant of this conversation" });
+      return;
+    }
+
+    const unauthorizedRecipients = recipientUserIds.filter(id => !participants.has(id));
+    if (unauthorizedRecipients.length > 0) {
+      res.status(403).json({ error: "Unauthorized: One or more recipients are not participants of this conversation" });
+      return;
+    }
 
     const { data: subs, error } = await supabase
       .from("push_subscriptions")
@@ -186,8 +202,9 @@ router.post("/push/notify", async (req, res) => {
 
     res.json({ sent, failed });
   } catch (err: any) {
+    // @ts-ignore
     req.log.error({ err }, "push/notify error");
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
