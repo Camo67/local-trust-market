@@ -1,0 +1,9 @@
+
+> @workspace/buddies-worldwide@0.0.0 dev /app/artifacts/buddies-worldwide
+> vite --config vite.config.ts --host 0.0.0.0
+
+
+  VITE v7.3.3  ready in 434 ms
+
+  ➜  Local:   http://localhost:3000/
+  ➜  Network: http://192.168.0.2:3000/
