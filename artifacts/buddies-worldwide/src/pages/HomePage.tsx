@@ -1,4 +1,4 @@
-import { BadgeCheck, Handshake, Search, Shield, Store, Users } from "lucide-react";
+import { BadgeCheck, Handshake, Search, Shield, Store, Users, User } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import ListingCard from "@/components/ListingCard";
 import { useListings } from "@/hooks/useListings";
@@ -24,9 +24,9 @@ const purposePoints = [
 
 const HomePage = () => {
   const { data: listings, isLoading } = useListings();
-  const { user, signOut } = useAuth();
+  const { user, profile, signOut } = useAuth();
   const navigate = useNavigate();
-  const initials = user?.email?.slice(0, 2).toUpperCase() || "??";
+  const initials = profile?.display_name?.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2) || user?.email?.slice(0, 2).toUpperCase() || "??";
 
   return (
     <div className="pb-24">
@@ -45,11 +45,22 @@ const HomePage = () => {
               <BadgeCheck className="h-4 w-4" />
             </button>
             <button
+              onClick={() => navigate("/profile")}
+              className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-primary bg-primary/10 text-sm font-semibold text-primary overflow-hidden"
+              title="Profile"
+            >
+              {profile?.avatar_url ? (
+                <img src={profile.avatar_url} alt={profile.display_name} className="h-full w-full object-cover" />
+              ) : (
+                initials
+              )}
+            </button>
+            <button
               onClick={signOut}
-              className="flex h-10 w-10 items-center justify-center rounded-full border-2 border-primary bg-primary/10 text-sm font-semibold text-primary"
+              className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-card text-muted-foreground"
               title="Sign out"
             >
-              {initials}
+              <User className="h-4 w-4" />
             </button>
           </div>
         </div>
