@@ -39,8 +39,10 @@ function getSupabase() {
   const url = process.env["VITE_SUPABASE_URL"];
   const key = process.env["VITE_SUPABASE_ANON_KEY"];
   if (!url || !key) throw new Error("Supabase env vars not set");
-  _supabase = createClient(url, key);
-  return _supabase;
+  return createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { Authorization: `Bearer ${token}` } },
+  });
 }
 
 let _vapidSet = false;
@@ -60,6 +62,13 @@ router.post("/push/subscribe", authMiddleware, async (req: AuthRequest, res) => 
     subscription: { endpoint: string; keys: { p256dh: string; auth: string } };
   };
 
+  // Authorization check: User can only subscribe for themselves
+  // @ts-ignore
+  if (userId !== req.user.id) {
+    res.status(403).json({ error: "Unauthorized: You can only subscribe for yourself" });
+    return;
+  }
+
   if (!userId || !subscription?.endpoint) {
     res.status(400).json({ error: "userId and subscription required" });
     return;
@@ -71,7 +80,7 @@ router.post("/push/subscribe", authMiddleware, async (req: AuthRequest, res) => 
   }
 
   try {
-    const supabase = getSupabase();
+    const supabase = getUserSupabase(req);
     const { error } = await supabase
       .from("push_subscriptions")
       .upsert(
@@ -98,6 +107,14 @@ router.post("/push/subscribe", authMiddleware, async (req: AuthRequest, res) => 
 
 router.delete("/push/unsubscribe", authMiddleware, async (req: AuthRequest, res) => {
   const { userId, endpoint } = req.body as { userId: string; endpoint: string };
+
+  // Authorization check: User can only unsubscribe for themselves
+  // @ts-ignore
+  if (userId !== req.user.id) {
+    res.status(403).json({ error: "Unauthorized: You can only unsubscribe for yourself" });
+    return;
+  }
+
   if (!userId || !endpoint) {
     res.status(400).json({ error: "userId and endpoint required" });
     return;
@@ -143,7 +160,38 @@ router.post("/push/notify", authMiddleware, async (req: AuthRequest, res) => {
 
   try {
     ensureVapid();
-    const supabase = getSupabase();
+    const supabase = getServiceSupabase();
+
+    // Authorization check: User must be a participant in the conversation
+    const { data: conversation, error: convError } = await supabase
+      .from("conversations")
+      .select("buyer_id, seller_id, moderator_id")
+      .eq("id", conversationId)
+      .single();
+
+    if (convError || !conversation) {
+      req.log.error({ convError, conversationId }, "Conversation not found or access denied");
+      res.status(404).json({ error: "Conversation not found" });
+      return;
+    }
+
+    const { buyer_id, seller_id, moderator_id } = conversation as any;
+    // @ts-ignore
+    const currentUserId = req.user.id;
+
+    if (currentUserId !== buyer_id && currentUserId !== seller_id && currentUserId !== moderator_id) {
+      res.status(403).json({ error: "Unauthorized: You are not a participant in this conversation" });
+      return;
+    }
+
+    // Security: Only send to users who are actually in this conversation
+    const participants = [buyer_id, seller_id, moderator_id].filter(Boolean);
+    const validRecipientUserIds = recipientUserIds.filter((id) => participants.includes(id));
+
+    if (validRecipientUserIds.length === 0) {
+      res.json({ sent: 0, failed: 0 });
+      return;
+    }
 
     // Verify sender is participant in conversation
     const { data: conv, error: convError } = await supabase
@@ -170,7 +218,7 @@ router.post("/push/notify", authMiddleware, async (req: AuthRequest, res) => {
     const { data: subs, error } = await supabase
       .from("push_subscriptions")
       .select("endpoint, p256dh, auth")
-      .in("user_id", recipientUserIds);
+      .in("user_id", validRecipientUserIds);
 
     if (error) {
       req.log.error({ error }, "Failed to fetch push subscriptions");

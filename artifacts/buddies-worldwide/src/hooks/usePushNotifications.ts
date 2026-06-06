@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
 
 const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY as string;
 const API_BASE = import.meta.env.BASE_URL?.replace(/\/$/, "");
@@ -38,7 +39,7 @@ export const usePushNotifications = () => {
   }, [supported, user]);
 
   const subscribe = useCallback(async () => {
-    if (!supported || !user) return;
+    if (!supported || !user || !session) return;
     setIsLoading(true);
     try {
       const perm = await Notification.requestPermission();
@@ -69,7 +70,7 @@ export const usePushNotifications = () => {
   }, [supported, user, session]);
 
   const unsubscribe = useCallback(async () => {
-    if (!supported || !user) return;
+    if (!supported || !user || !session) return;
     setIsLoading(true);
     try {
       const reg = await navigator.serviceWorker.ready;
@@ -107,6 +108,10 @@ export const sendPushNotification = async (
 ) => {
   const API_BASE = (import.meta.env.BASE_URL as string)?.replace(/\/$/, "");
   try {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (session?.access_token) {
+      headers["Authorization"] = `Bearer ${session.access_token}`;
+    }
     await fetch(`${API_BASE}/api/push/notify`, {
       method: "POST",
       headers: {

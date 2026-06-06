@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { Camera, ArrowLeft, X, Plus } from "lucide-react";
+import { Camera, ArrowLeft, X, Plus, Loader2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { CATEGORIES } from "@/types/marketplace";
 import { useToast } from "@/hooks/use-toast";
@@ -24,11 +24,13 @@ const SellPage = () => {
     const files = Array.from(e.target.files || []);
     const remaining = MAX_IMAGES - imageFiles.length;
     const toAdd = files.slice(0, remaining);
+
     const oversized = toAdd.filter((f) => f.size > 5 * 1024 * 1024);
     if (oversized.length > 0) {
       toast({ title: "Image too large", description: "Max 5MB per image", variant: "destructive" });
       return;
     }
+
     setImageFiles((prev) => [...prev, ...toAdd]);
     setImagePreviews((prev) => [...prev, ...toAdd.map((f) => URL.createObjectURL(f))]);
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -36,15 +38,22 @@ const SellPage = () => {
 
   const removeImage = (index: number) => {
     setImageFiles((prev) => prev.filter((_, i) => i !== index));
+    URL.revokeObjectURL(imagePreviews[index]);
     setImagePreviews((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!user) {
+      toast({ title: "Authentication required", description: "Please sign in to post a listing", variant: "destructive" });
+      return;
+    }
+
     if (!form.title || !form.price || !form.category || !form.location) {
       toast({ title: "Missing fields", description: "Please fill in all required fields", variant: "destructive" });
       return;
     }
+
     if (imageFiles.length === 0) {
       toast({ title: "Image required", description: "Please add at least one photo", variant: "destructive" });
       return;
@@ -55,11 +64,19 @@ const SellPage = () => {
       const uploadedUrls: string[] = [];
       for (const file of imageFiles) {
         const ext = file.name.split(".").pop();
-        const path = `${user!.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-        const { error: uploadError } = await supabase.storage
+        // Path MUST start with user.id to satisfy RLS: auth.uid()::text = (storage.foldername(name))[1]
+        const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+
+        console.log(`Uploading to listing-images/${path}...`);
+        const { error: uploadError, data } = await supabase.storage
           .from("listing-images")
           .upload(path, file, { cacheControl: "3600", upsert: false });
-        if (uploadError) throw uploadError;
+
+        if (uploadError) {
+          console.error("Storage upload error:", uploadError);
+          throw new Error(`Failed to upload image: ${uploadError.message}`);
+        }
+
         const { data: { publicUrl } } = supabase.storage.from("listing-images").getPublicUrl(path);
         uploadedUrls.push(publicUrl);
       }
@@ -71,7 +88,7 @@ const SellPage = () => {
       }
 
       const { data: newListing, error } = await supabase.from("listings").insert({
-        seller_id: user!.id,
+        seller_id: user.id,
         title: form.title,
         description: form.description || null,
         price: parseInt(form.price),
@@ -80,9 +97,13 @@ const SellPage = () => {
         image_url: uploadedUrls[0],
         video_url: form.video_url || null,
         video_thumbnail: videoThumbnail,
+        status: "active"
       }).select("id").single();
 
-      if (error) throw error;
+      if (error) {
+        console.error("Database insert error:", error);
+        throw new Error(`Failed to create listing: ${error.message}`);
+      }
 
       if (uploadedUrls.length > 0) {
         const imgRows = uploadedUrls.map((url, i) => ({
@@ -90,7 +111,8 @@ const SellPage = () => {
           url,
           position: i,
         }));
-        await supabase.from("listing_images").insert(imgRows);
+        const { error: imgError } = await supabase.from("listing_images").insert(imgRows);
+        if (imgError) console.error("Error inserting listing images:", imgError);
       }
 
       queryClient.invalidateQueries({ queryKey: ["listings"] });
@@ -195,8 +217,9 @@ const SellPage = () => {
         <button
           type="submit"
           disabled={loading}
-          className="w-full rounded-xl bg-primary py-3.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+          className="w-full rounded-xl bg-primary py-3.5 text-sm font-semibold text-primary-foreground flex items-center justify-center gap-2 disabled:opacity-50"
         >
+          {loading && <Loader2 className="h-4 w-4 animate-spin" />}
           {loading ? "Uploading..." : "Post Listing"}
         </button>
       </form>

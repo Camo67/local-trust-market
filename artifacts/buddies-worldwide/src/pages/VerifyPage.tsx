@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowLeft, Upload, CheckCircle, Clock, X, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Upload, CheckCircle, Clock, X, ShieldCheck, Loader2 } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
@@ -50,16 +50,25 @@ const VerifyPage = () => {
   };
 
   const uploadDoc = async (docFile: File, folder: string): Promise<string> => {
+    // Path MUST start with user.id to satisfy RLS
     const ext = docFile.name.split(".").pop();
     const path = `${user!.id}/${folder}/${Date.now()}.${ext}`;
+
+    console.log(`Uploading document to verification-docs/${path}...`);
     const { error } = await supabase.storage.from("verification-docs").upload(path, docFile, { cacheControl: "3600" });
-    if (error) throw error;
+
+    if (error) {
+      console.error("Verification doc upload error:", error);
+      throw new Error(`Failed to upload ${folder} document: ${error.message}`);
+    }
+
     const { data: { publicUrl } } = supabase.storage.from("verification-docs").getPublicUrl(path);
     return publicUrl;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!user) return;
     if (!docType) { toast({ title: "Select document type", variant: "destructive" }); return; }
     if (!docFront.file) { toast({ title: "Upload front of document", variant: "destructive" }); return; }
     if (!selfie.file) { toast({ title: "Upload a selfie", variant: "destructive" }); return; }
@@ -71,7 +80,7 @@ const VerifyPage = () => {
       const selfieUrl = await uploadDoc(selfie.file, "selfie");
 
       const { error } = await supabase.from("verification_requests").insert({
-        user_id: user!.id,
+        user_id: user.id,
         doc_type: docType,
         doc_front_url: frontUrl,
         doc_back_url: backUrl,
@@ -79,11 +88,15 @@ const VerifyPage = () => {
         status: "pending",
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error("Verification request DB error:", error);
+        throw new Error(`Failed to submit request: ${error.message}`);
+      }
+
       await refetch();
       toast({ title: "Submitted!", description: "We'll review your documents within 24 hours." });
     } catch (err: any) {
-      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+      toast({ title: "Submission failed", description: err.message, variant: "destructive" });
     } finally {
       setLoading(false);
     }
@@ -215,8 +228,9 @@ const VerifyPage = () => {
         <button
           type="submit"
           disabled={loading}
-          className="w-full rounded-xl bg-primary py-3.5 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+          className="w-full rounded-xl bg-primary py-3.5 text-sm font-semibold text-primary-foreground flex items-center justify-center gap-2 disabled:opacity-50"
         >
+          {loading && <Loader2 className="h-4 w-4 animate-spin" />}
           {loading ? "Uploading documents..." : "Submit for Verification"}
         </button>
       </form>

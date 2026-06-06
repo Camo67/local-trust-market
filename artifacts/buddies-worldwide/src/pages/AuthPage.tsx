@@ -9,33 +9,88 @@ const AuthPage = () => {
   const [password, setPassword] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [loading, setLoading] = useState(false);
+  const [secondaryLoading, setSecondaryLoading] = useState<"reset" | "verify" | null>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
+
+  const trimmedEmail = email.trim();
+  const authRedirectUrl = window.location.origin;
+  const resetRedirectUrl = `${window.location.origin}/reset-password`;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     try {
       if (isLogin) {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        const { error } = await supabase.auth.signInWithPassword({ email: trimmedEmail, password });
         if (error) throw error;
         navigate("/");
       } else {
-        const { error } = await supabase.auth.signUp({
-          email,
+        const { data, error } = await supabase.auth.signUp({
+          email: trimmedEmail,
           password,
           options: {
             data: { display_name: displayName },
-            emailRedirectTo: window.location.origin,
+            emailRedirectTo: authRedirectUrl,
           },
         });
         if (error) throw error;
+        if (data.user && data.user.identities?.length === 0) {
+          setIsLogin(true);
+          toast({
+            title: "Account already exists",
+            description: "Sign in with this email, or use Forgot password to reset it.",
+          });
+          return;
+        }
         toast({ title: "Account created!", description: "Check your email to verify your account." });
       }
     } catch (error: any) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handlePasswordReset = async () => {
+    if (!trimmedEmail) {
+      toast({ title: "Enter your email first", variant: "destructive" });
+      return;
+    }
+
+    setSecondaryLoading("reset");
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(trimmedEmail, {
+        redirectTo: resetRedirectUrl,
+      });
+      if (error) throw error;
+      toast({ title: "Reset email sent", description: "Open the link in your email to set a new password." });
+    } catch (error: any) {
+      toast({ title: "Reset failed", description: error.message, variant: "destructive" });
+    } finally {
+      setSecondaryLoading(null);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    if (!trimmedEmail) {
+      toast({ title: "Enter your email first", variant: "destructive" });
+      return;
+    }
+
+    setSecondaryLoading("verify");
+    try {
+      const { error } = await supabase.auth.resend({
+        type: "signup",
+        email: trimmedEmail,
+        options: { emailRedirectTo: authRedirectUrl },
+      });
+      if (error) throw error;
+      toast({ title: "Verification email sent", description: "Check your inbox and spam folder." });
+    } catch (error: any) {
+      toast({ title: "Could not resend email", description: error.message, variant: "destructive" });
+    } finally {
+      setSecondaryLoading(null);
     }
   };
 
@@ -92,6 +147,29 @@ const AuthPage = () => {
             {loading ? "Please wait..." : isLogin ? "Sign In" : "Create Account"}
           </button>
         </form>
+
+        {isLogin && (
+          <div className="space-y-3 text-center text-sm">
+            <button
+              type="button"
+              onClick={handlePasswordReset}
+              disabled={secondaryLoading !== null}
+              className="font-semibold text-primary disabled:opacity-50"
+            >
+              {secondaryLoading === "reset" ? "Sending reset email..." : "Forgot password?"}
+            </button>
+            <div>
+              <button
+                type="button"
+                onClick={handleResendVerification}
+                disabled={secondaryLoading !== null}
+                className="text-muted-foreground underline-offset-4 hover:underline disabled:opacity-50"
+              >
+                {secondaryLoading === "verify" ? "Sending verification email..." : "Resend verification email"}
+              </button>
+            </div>
+          </div>
+        )}
 
         <p className="text-center text-sm text-muted-foreground">
           {isLogin ? "Don't have an account? " : "Already have an account? "}
