@@ -20,8 +20,27 @@ import NotFound from "./pages/not-found";
 
 const queryClient = new QueryClient();
 
-const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
-  const { user, loading } = useAuth();
+const ProtectedRoute = ({ children, requireAdmin = false }: { children: React.ReactNode; requireAdmin?: boolean }) => {
+  const { user, isAdmin, loading } = useAuth();
+  if (loading) {
+    return (
+      <div className="flex min-h-dvh items-center justify-center bg-background">
+        <div className="h-8 w-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user) return <Navigate to="/auth" replace />;
+
+  // SECURITY: Defense-in-depth. We prevent non-admin users from accessing
+  // admin routes at the routing level, complementing DB RLS policies.
+  if (requireAdmin && !isAdmin) return <Navigate to="/" replace />;
+
+  return <>{children}</>;
+};
+
+const AdminRoute = ({ children }: { children: React.ReactNode }) => {
+  const { user, isAdmin, loading } = useAuth();
   if (loading) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-background">
@@ -30,6 +49,7 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
     );
   }
   if (!user) return <Navigate to="/auth" replace />;
+  if (!isAdmin) return <Navigate to="/" replace />;
   return <>{children}</>;
 };
 
@@ -55,7 +75,7 @@ const AppLayout = () => {
         <Route path="/listing/:id" element={<ProtectedRoute><ListingDetailPage /></ProtectedRoute>} />
         <Route path="/chat/:id" element={<ProtectedRoute><ChatPage /></ProtectedRoute>} />
         <Route path="/verify" element={<ProtectedRoute><VerifyPage /></ProtectedRoute>} />
-        <Route path="/admin" element={<ProtectedRoute><AdminPage /></ProtectedRoute>} />
+        <Route path="/admin" element={<AdminRoute><AdminPage /></AdminRoute>} />
         <Route path="*" element={<NotFound />} />
       </Routes>
       {!hideNav && user && <BottomNav />}

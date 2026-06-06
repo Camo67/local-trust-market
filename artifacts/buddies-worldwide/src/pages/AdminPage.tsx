@@ -299,14 +299,6 @@ const AdminPage = () => {
             <p className="text-xs text-muted-foreground/70 mt-1">New submissions will appear here</p>
           </div>
         )}
-
-        <div className="mt-6 rounded-xl bg-warning/10 px-4 py-3 flex gap-2">
-          <AlertTriangle className="h-4 w-4 text-warning flex-shrink-0 mt-0.5" />
-          <p className="text-xs text-muted-foreground">
-            <span className="font-semibold text-foreground">Admin access: </span>
-            In production, restrict this route to users with an admin role in the database. Currently accessible to any authenticated user who knows the URL.
-          </p>
-        </div>
       </main>
     </div>
   );
