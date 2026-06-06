@@ -1,33 +1,41 @@
-import { Router, type Request } from "express";
+import { Router, type Request, type Response, type NextFunction } from "express";
 import webpush from "web-push";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { getSupabase } from "../lib/supabase";
-import { authMiddleware } from "../middlewares/auth";
+import { createClient, type SupabaseClient, type User } from "@supabase/supabase-js";
 
 const router = Router();
 
-let _serviceSupabase: SupabaseClient | null = null;
-
-function getServiceSupabase() {
-  if (_serviceSupabase) return _serviceSupabase;
-  const url = process.env["VITE_SUPABASE_URL"];
-  const key = process.env["SUPABASE_SERVICE_ROLE_KEY"];
-  if (!url || !key) throw new Error("SUPABASE_SERVICE_ROLE_KEY is required for server push notifications");
-  _serviceSupabase = createClient(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-  return _serviceSupabase;
+interface AuthRequest extends Request {
+  user?: User;
 }
 
-function getBearerToken(req: Request) {
-  const header = req.headers.authorization;
-  if (!header?.startsWith("Bearer ")) return null;
-  return header.slice("Bearer ".length).trim();
-}
+const authMiddleware = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith("Bearer ")) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
 
-function getUserSupabase(req: Request) {
-  const token = getBearerToken(req);
-  if (!token) throw new Error("Authorization bearer token required");
+  const token = authHeader.split(" ")[1];
+  try {
+    const supabase = getSupabase();
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+
+    if (error || !user) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    req.user = user;
+    next();
+  } catch (err) {
+    req.log.error({ err }, "Auth middleware error");
+    res.status(401).json({ error: "Unauthorized" });
+  }
+};
+
+let _supabase: SupabaseClient | null = null;
+function getSupabase() {
+  if (_supabase) return _supabase;
   const url = process.env["VITE_SUPABASE_URL"];
   const key = process.env["VITE_SUPABASE_ANON_KEY"];
   if (!url || !key) throw new Error("Supabase env vars not set");
@@ -48,10 +56,7 @@ function ensureVapid() {
   _vapidSet = true;
 }
 
-// All push routes require authentication
-router.use(authMiddleware);
-
-router.post("/push/subscribe", async (req, res) => {
+router.post("/push/subscribe", authMiddleware, async (req: AuthRequest, res) => {
   const { userId, subscription } = req.body as {
     userId: string;
     subscription: { endpoint: string; keys: { p256dh: string; auth: string } };
@@ -66,6 +71,11 @@ router.post("/push/subscribe", async (req, res) => {
 
   if (!userId || !subscription?.endpoint) {
     res.status(400).json({ error: "userId and subscription required" });
+    return;
+  }
+
+  if (req.user?.id !== userId) {
+    res.status(403).json({ error: "Forbidden" });
     return;
   }
 
@@ -95,7 +105,7 @@ router.post("/push/subscribe", async (req, res) => {
   }
 });
 
-router.delete("/push/unsubscribe", async (req, res) => {
+router.delete("/push/unsubscribe", authMiddleware, async (req: AuthRequest, res) => {
   const { userId, endpoint } = req.body as { userId: string; endpoint: string };
 
   // Authorization check: User can only unsubscribe for themselves
@@ -109,13 +119,25 @@ router.delete("/push/unsubscribe", async (req, res) => {
     res.status(400).json({ error: "userId and endpoint required" });
     return;
   }
+
+  if (req.user?.id !== userId) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+
   try {
-    const supabase = getUserSupabase(req);
-    await supabase
+    const supabase = getSupabase();
+    const { error } = await supabase
       .from("push_subscriptions")
       .delete()
       .eq("user_id", userId)
       .eq("endpoint", endpoint);
+
+    if (error) {
+      req.log.error({ error }, "Failed to delete push subscription");
+      res.status(500).json({ error: "Internal server error" });
+      return;
+    }
     res.json({ ok: true });
   } catch (err: any) {
     req.log.error({ err }, "push/unsubscribe error");
@@ -123,7 +145,7 @@ router.delete("/push/unsubscribe", async (req, res) => {
   }
 });
 
-router.post("/push/notify", async (req, res) => {
+router.post("/push/notify", authMiddleware, async (req: AuthRequest, res) => {
   const { recipientUserIds, title, body, conversationId } = req.body as {
     recipientUserIds: string[];
     title: string;
@@ -132,7 +154,7 @@ router.post("/push/notify", async (req, res) => {
   };
 
   if (!recipientUserIds?.length || !body || !conversationId) {
-    res.status(400).json({ error: "recipientUserIds, body, and conversationId required" });
+    res.status(400).json({ error: "recipientUserIds, body and conversationId required" });
     return;
   }
 
@@ -168,6 +190,28 @@ router.post("/push/notify", async (req, res) => {
 
     if (validRecipientUserIds.length === 0) {
       res.json({ sent: 0, failed: 0 });
+      return;
+    }
+
+    // Verify sender is participant in conversation
+    const { data: conv, error: convError } = await supabase
+      .from("conversations")
+      .select("buyer_id, seller_id, moderator_id")
+      .eq("id", conversationId)
+      .single();
+
+    if (convError || !conv) {
+      res.status(404).json({ error: "Conversation not found" });
+      return;
+    }
+
+    const isParticipant =
+      conv.buyer_id === req.user?.id ||
+      conv.seller_id === req.user?.id ||
+      conv.moderator_id === req.user?.id;
+
+    if (!isParticipant) {
+      res.status(403).json({ error: "Forbidden" });
       return;
     }
 

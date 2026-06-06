@@ -176,12 +176,15 @@ const ChatPage = () => {
       ].filter((uid): uid is string => !!uid && uid !== user.id);
 
       if (recipients.length > 0) {
-        sendPushNotification({
-          recipientUserIds: recipients,
-          title: myName || "New message",
-          body: content.length > 80 ? content.slice(0, 77) + "…" : content,
-          conversationId: id,
-        }, session || undefined);
+        sendPushNotification(
+          {
+            recipientUserIds: recipients,
+            title: myName || "New message",
+            body: content.length > 80 ? content.slice(0, 77) + "…" : content,
+            conversationId: id,
+          },
+          session?.access_token
+        );
       }
     }
   };

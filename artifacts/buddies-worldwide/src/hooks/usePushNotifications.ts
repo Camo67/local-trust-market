@@ -56,7 +56,7 @@ export const usePushNotifications = () => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token ?? ""}`,
+          "Authorization": `Bearer ${session?.access_token}`,
         },
         body: JSON.stringify({ userId: user.id, subscription: sub.toJSON() }),
       });
@@ -80,7 +80,7 @@ export const usePushNotifications = () => {
           method: "DELETE",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${(await supabase.auth.getSession()).data.session?.access_token ?? ""}`,
+            "Authorization": `Bearer ${session?.access_token}`,
           },
           body: JSON.stringify({ userId: user.id, endpoint: sub.endpoint }),
         });
@@ -97,12 +97,15 @@ export const usePushNotifications = () => {
   return { supported, permission, isSubscribed, isLoading, subscribe, unsubscribe };
 };
 
-export const sendPushNotification = async (opts: {
-  recipientUserIds: string[];
-  title: string;
-  body: string;
-  conversationId: string;
-}, session?: { access_token: string }) => {
+export const sendPushNotification = async (
+  opts: {
+    recipientUserIds: string[];
+    title: string;
+    body: string;
+    conversationId: string;
+  },
+  token?: string
+) => {
   const API_BASE = (import.meta.env.BASE_URL as string)?.replace(/\/$/, "");
   try {
     const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -111,7 +114,10 @@ export const sendPushNotification = async (opts: {
     }
     await fetch(`${API_BASE}/api/push/notify`, {
       method: "POST",
-      headers,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { "Authorization": `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify(opts),
     });
   } catch {
