@@ -1,6 +1,7 @@
 import { Router, type Request } from "express";
 import webpush from "web-push";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { getSupabase } from "../lib/supabase";
 import { authMiddleware } from "../middlewares/auth";
 
 const router = Router();
@@ -84,7 +85,7 @@ router.post("/push/subscribe", async (req, res) => {
 
     if (error) {
       req.log.error({ error }, "Failed to store push subscription");
-      res.status(500).json({ error: "Failed to save subscription" });
+      res.status(500).json({ error: "Internal server error" });
       return;
     }
     res.json({ ok: true });
@@ -139,7 +140,7 @@ router.post("/push/notify", async (req, res) => {
     ensureVapid();
     const supabase = getServiceSupabase();
 
-    // Security: Verify sender and recipients are participants in the conversation
+    // Authorization check: User must be a participant in the conversation
     const { data: conversation, error: convError } = await supabase
       .from("conversations")
       .select("buyer_id, seller_id, moderator_id")
@@ -147,36 +148,37 @@ router.post("/push/notify", async (req, res) => {
       .single();
 
     if (convError || !conversation) {
+      req.log.error({ convError, conversationId }, "Conversation not found or access denied");
       res.status(404).json({ error: "Conversation not found" });
       return;
     }
 
-    const participants = new Set([
-      conversation.buyer_id,
-      conversation.seller_id,
-      conversation.moderator_id,
-    ].filter(Boolean));
-
+    const { buyer_id, seller_id, moderator_id } = conversation as any;
     // @ts-ignore
-    if (!participants.has(req.user.id)) {
+    const currentUserId = req.user.id;
+
+    if (currentUserId !== buyer_id && currentUserId !== seller_id && currentUserId !== moderator_id) {
       res.status(403).json({ error: "Unauthorized: You are not a participant in this conversation" });
       return;
     }
 
-    const unauthorizedRecipients = recipientUserIds.filter(id => !participants.has(id));
-    if (unauthorizedRecipients.length > 0) {
-      res.status(403).json({ error: "Unauthorized: One or more recipients are not in this conversation" });
+    // Security: Only send to users who are actually in this conversation
+    const participants = [buyer_id, seller_id, moderator_id].filter(Boolean);
+    const validRecipientUserIds = recipientUserIds.filter((id) => participants.includes(id));
+
+    if (validRecipientUserIds.length === 0) {
+      res.json({ sent: 0, failed: 0 });
       return;
     }
 
     const { data: subs, error } = await supabase
       .from("push_subscriptions")
       .select("endpoint, p256dh, auth")
-      .in("user_id", recipientUserIds);
+      .in("user_id", validRecipientUserIds);
 
     if (error) {
       req.log.error({ error }, "Failed to fetch push subscriptions");
-      res.status(500).json({ error: "Failed to fetch subscriptions" });
+      res.status(500).json({ error: "Internal server error" });
       return;
     }
 
