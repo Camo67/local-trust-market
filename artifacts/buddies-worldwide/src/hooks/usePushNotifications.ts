@@ -56,7 +56,7 @@ export const usePushNotifications = () => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${session.access_token}`,
+          "Authorization": `Bearer ${session.access_token}`
         },
         body: JSON.stringify({ userId: user.id, subscription: sub.toJSON() }),
       });
@@ -80,7 +80,7 @@ export const usePushNotifications = () => {
           method: "DELETE",
           headers: {
             "Content-Type": "application/json",
-            "Authorization": `Bearer ${session.access_token}`,
+            "Authorization": `Bearer ${session.access_token}`
           },
           body: JSON.stringify({ userId: user.id, endpoint: sub.endpoint }),
         });

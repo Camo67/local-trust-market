@@ -31,43 +31,42 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [loading, setLoading] = useState(true);
   const [profileLoading, setProfileLoading] = useState(false);
 
-  useEffect(() => {
-    const fetchProfile = async (userId: string) => {
-      setProfileLoading(true);
+  const updateAuthState = async (newSession: Session | null) => {
+    // Only update if session changed to avoid redundant profile fetches
+    if (newSession?.user?.id === user?.id && !!newSession === !!session) {
+       setLoading(false);
+       return;
+    }
+
+    setSession(newSession);
+    setUser(newSession?.user ?? null);
+
+    if (newSession?.user) {
       try {
         const { data, error } = await supabase
           .from("profiles")
           .select("is_admin")
-          .eq("user_id", userId)
+          .eq("user_id", newSession.user.id)
           .maybeSingle();
-        if (!error && data) {
-          setIsAdmin(!!data.is_admin);
-        } else {
-          setIsAdmin(false);
-        }
-      } catch (err) {
-        setIsAdmin(false);
-      } finally {
-        setProfileLoading(false);
-      }
-    };
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (!session) {
-        setLoading(false);
+        setIsAdmin(data?.is_admin ?? false);
+      } catch (err) {
+        console.error("Error fetching admin status:", err);
+        setIsAdmin(false);
       }
+    } else {
+      setIsAdmin(false);
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      updateAuthState(session);
     });
 
     supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (!session) {
-        setLoading(false);
-      }
+      updateAuthState(session);
     });
 
     return () => subscription.unsubscribe();
@@ -119,7 +118,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, session, isAdmin, loading: combinedLoading, signOut }}>
+    <AuthContext.Provider value={{ user, session, isAdmin, loading, signOut }}>
       {children}
     </AuthContext.Provider>
   );
