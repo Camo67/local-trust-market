@@ -1,20 +1,12 @@
 import { Router, type Request } from "express";
 import webpush from "web-push";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { getSupabase } from "../lib/supabase";
+import { authMiddleware } from "../middlewares/auth";
 
 const router = Router();
 
-let _supabase: SupabaseClient | null = null;
 let _serviceSupabase: SupabaseClient | null = null;
-
-function getSupabase() {
-  if (_supabase) return _supabase;
-  const url = process.env["VITE_SUPABASE_URL"];
-  const key = process.env["VITE_SUPABASE_ANON_KEY"];
-  if (!url || !key) throw new Error("Supabase env vars not set");
-  _supabase = createClient(url, key);
-  return _supabase;
-}
 
 function getServiceSupabase() {
   if (_serviceSupabase) return _serviceSupabase;
@@ -56,11 +48,21 @@ function ensureVapid() {
   _vapidSet = true;
 }
 
+// All push routes require authentication
+router.use(authMiddleware);
+
 router.post("/push/subscribe", async (req, res) => {
   const { userId, subscription } = req.body as {
     userId: string;
     subscription: { endpoint: string; keys: { p256dh: string; auth: string } };
   };
+
+  // Authorization check: User can only subscribe for themselves
+  // @ts-ignore
+  if (userId !== req.user.id) {
+    res.status(403).json({ error: "Unauthorized: You can only subscribe for yourself" });
+    return;
+  }
 
   if (!userId || !subscription?.endpoint) {
     res.status(400).json({ error: "userId and subscription required" });
@@ -95,6 +97,14 @@ router.post("/push/subscribe", async (req, res) => {
 
 router.delete("/push/unsubscribe", async (req, res) => {
   const { userId, endpoint } = req.body as { userId: string; endpoint: string };
+
+  // Authorization check: User can only unsubscribe for themselves
+  // @ts-ignore
+  if (userId !== req.user.id) {
+    res.status(403).json({ error: "Unauthorized: You can only unsubscribe for yourself" });
+    return;
+  }
+
   if (!userId || !endpoint) {
     res.status(400).json({ error: "userId and endpoint required" });
     return;
@@ -121,8 +131,8 @@ router.post("/push/notify", async (req, res) => {
     conversationId: string;
   };
 
-  if (!recipientUserIds?.length || !body) {
-    res.status(400).json({ error: "recipientUserIds and body required" });
+  if (!recipientUserIds?.length || !body || !conversationId) {
+    res.status(400).json({ error: "recipientUserIds, body, and conversationId required" });
     return;
   }
 
@@ -130,10 +140,41 @@ router.post("/push/notify", async (req, res) => {
     ensureVapid();
     const supabase = getServiceSupabase();
 
+    // Authorization check: User must be a participant in the conversation
+    const { data: conversation, error: convError } = await supabase
+      .from("conversations")
+      .select("buyer_id, seller_id, moderator_id")
+      .eq("id", conversationId)
+      .single();
+
+    if (convError || !conversation) {
+      req.log.error({ convError, conversationId }, "Conversation not found or access denied");
+      res.status(404).json({ error: "Conversation not found" });
+      return;
+    }
+
+    const { buyer_id, seller_id, moderator_id } = conversation as any;
+    // @ts-ignore
+    const currentUserId = req.user.id;
+
+    if (currentUserId !== buyer_id && currentUserId !== seller_id && currentUserId !== moderator_id) {
+      res.status(403).json({ error: "Unauthorized: You are not a participant in this conversation" });
+      return;
+    }
+
+    // Security: Only send to users who are actually in this conversation
+    const participants = [buyer_id, seller_id, moderator_id].filter(Boolean);
+    const validRecipientUserIds = recipientUserIds.filter((id) => participants.includes(id));
+
+    if (validRecipientUserIds.length === 0) {
+      res.json({ sent: 0, failed: 0 });
+      return;
+    }
+
     const { data: subs, error } = await supabase
       .from("push_subscriptions")
       .select("endpoint, p256dh, auth")
-      .in("user_id", recipientUserIds);
+      .in("user_id", validRecipientUserIds);
 
     if (error) {
       req.log.error({ error }, "Failed to fetch push subscriptions");

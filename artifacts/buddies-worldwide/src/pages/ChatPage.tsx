@@ -20,7 +20,7 @@ const TYPING_TIMEOUT_MS = 2500;
 const ChatPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, session } = useAuth();
   const { markRead } = useUnread();
   const { data: messages } = useMessages(id || "");
   const { data: conversation } = useConversation(id || "");
@@ -181,7 +181,7 @@ const ChatPage = () => {
           title: myName || "New message",
           body: content.length > 80 ? content.slice(0, 77) + "…" : content,
           conversationId: id,
-        });
+        }, session || undefined);
       }
     }
   };
