@@ -1,0 +1,93 @@
+# Self-hosted data layer for Buddies Worldwide: Postgres + PostgREST +
+# Storage-API, fronted by Kong — the same open-source components hosted
+# Supabase runs, minus GoTrue/Studio/Realtime (not used by this app) and
+# with JWT verification pointed at self-hosted Logto (../logto) instead of
+# GoTrue. supabase-js talks to this stack exactly like it talks to
+# supabase.com: VITE_SUPABASE_URL = Kong's URL below, VITE_SUPABASE_ANON_KEY
+# = ANON_KEY below.
+#
+# Image tags below are examples current as of when this file was written —
+# this sandbox could not reach hub.docker.com/github.com/supabase to
+# confirm latest release tags at the time this was authored (see
+# ../README.md). Check https://github.com/supabase/postgres/releases,
+# https://github.com/PostgREST/postgrest/releases, and
+# https://github.com/supabase/storage/releases before deploying, and bump
+# the tags below if newer ones exist.
+#
+# NOT production-ready as-is (no TLS, no secrets management, single-node
+# Postgres with a local volume). Treat this as a starting point.
+services:
+  db:
+    image: supabase/postgres:15.1.1.61
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set a real password}
+      POSTGRES_DB: postgres
+      JWT_SECRET: unused-jwt-verification-is-jwks-based # required by the image's bootstrap even though we don't use it
+    volumes:
+      - supabase-db-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432" # for running supabase_complete_setup.sql / supabase_logto_migration.sql via psql
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  rest:
+    image: postgrest/postgrest:v12.2.3
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD:?set a real password}@db:5432/postgres
+      PGRST_DB_SCHEMAS: public
+      PGRST_DB_ANON_ROLE: anon
+      # JWKS-based verification — trusts Logto directly, no shared secret.
+      # Stable since PostgREST v11; high confidence this is the right var.
+      PGRST_JWT_JWKS_URL: ${LOGTO_ENDPOINT:?e.g. http://logto:3001}/oidc/jwks
+      PGRST_JWT_AUD: ${SUPABASE_RESOURCE:?the Logto API Resource indicator, e.g. https://api.buddies.local}
+
+  storage:
+    image: supabase/storage-api:v1.11.13
+    depends_on:
+      db:
+        condition: service_healthy
+      rest:
+        condition: service_started
+    environment:
+      ANON_KEY: ${ANON_KEY:?the anon JWT/key clients send as apikey}
+      SERVICE_KEY: ${SERVICE_ROLE_KEY:?the service-role JWT/key for admin operations}
+      POSTGREST_URL: http://rest:3000
+      DATABASE_URL: postgres://supabase_storage_admin:${POSTGRES_PASSWORD:?set a real password}@db:5432/postgres
+      FILE_SIZE_LIMIT: "52428800"
+      STORAGE_BACKEND: file
+      FILE_STORAGE_BACKEND_PATH: /var/lib/storage
+      TENANT_ID: buddies-worldwide
+      REGION: local
+      GLOBAL_S3_BUCKET: unused
+      ENABLE_IMAGE_TRANSFORMATION: "false"
+      # LOW CONFIDENCE — verify this env var name against the storage-api
+      # version you pull (see ../README.md "Things I could not verify").
+      # If it doesn't support JWKS directly, front it with the same
+      # oauth2-proxy/Kong-JWT-plugin trick used for `rest` above instead.
+      JWT_JWKS_URL: ${LOGTO_ENDPOINT:?e.g. http://logto:3001}/oidc/jwks
+    volumes:
+      - supabase-storage-data:/var/lib/storage
+
+  kong:
+    image: kong:3.6
+    depends_on:
+      - rest
+      - storage
+    ports:
+      - "8000:8000" # this is VITE_SUPABASE_URL
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /var/lib/kong/kong.yml
+      KONG_PROXY_LISTEN: 0.0.0.0:8000
+    volumes:
+      - ./volumes/api/kong.yml:/var/lib/kong/kong.yml:ro
+
+volumes:
+  supabase-db-data:
+  supabase-storage-data:

@@ -75,6 +75,7 @@
     "zod": "catalog:"
   },
   "dependencies": {
+    "@logto/react": "^4.0.14",
     "@supabase/supabase-js": "^2.105.3",
     "react-router-dom": "^7.15.0"
   }

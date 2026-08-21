@@ -1,0 +1,61 @@
+# Minimal Kong declarative (DB-less) config: exposes PostgREST and
+# Storage-API under one base URL the way hosted Supabase does, and checks
+# the `apikey` header supabase-js sends on every request against the two
+# keys below. This is an original, trimmed-down config — NOT a copy of
+# Supabase's own kong.yml — covering only what Buddies Worldwide uses
+# (`rest`, `storage`). See ../../README.md before deploying.
+#
+# REQUIRED before starting: replace both placeholder keys below. They can
+# be any string PostgREST/Storage-API don't otherwise validate (Kong is
+# the only thing checking them) — a random 32+ byte value is fine, they
+# are not JWTs and don't need to be signed by anything.
+_format_version: "3.0"
+
+consumers:
+  - username: anon
+    keyauth_credentials:
+      - key: REPLACE_WITH_ANON_KEY
+  - username: service_role
+    keyauth_credentials:
+      - key: REPLACE_WITH_SERVICE_ROLE_KEY
+
+acls:
+  - consumer: anon
+    group: anon
+  - consumer: service_role
+    group: admin
+
+services:
+  - name: rest-v1
+    url: http://rest:3000/
+    routes:
+      - name: rest-v1-all
+        strip_path: true
+        paths:
+          - /rest/v1/
+    plugins:
+      - name: cors
+      - name: key-auth
+        config:
+          key_names: [apikey]
+          hide_credentials: true
+      - name: acl
+        config:
+          allow: [anon, admin]
+
+  - name: storage-v1
+    url: http://storage:5000/
+    routes:
+      - name: storage-v1-all
+        strip_path: true
+        paths:
+          - /storage/v1/
+    plugins:
+      - name: cors
+      - name: key-auth
+        config:
+          key_names: [apikey]
+          hide_credentials: true
+      - name: acl
+        config:
+          allow: [anon, admin]
