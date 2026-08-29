@@ -34,8 +34,15 @@ externalPort = 3000
 [userenv]
 
 [userenv.shared]
-VITE_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdobGVsbGFyenBrcGZtZndqbnhxIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3ODIzNjgzOCwiZXhwIjoyMDkzODEyODM4fQ.nQjuZ1JsAgKpGgYGUWDhoqcJBnuVD6LssqvNpfMCNDI"
-VITE_SUPABASE_URL = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdobGVsbGFyenBrcGZtZndqbnhxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgyMzY4MzgsImV4cCI6MjA5MzgxMjgzOH0.hDBxxUJLuWNug8AxtwQ5Y49X2XUC8WPHlOp0kKGD07I"
+# VITE_SUPABASE_ANON_KEY / VITE_SUPABASE_URL previously lived here pointed
+# at hosted supabase.com — removed as part of the Logto + self-hosted data
+# layer migration (see /infra/README.md for the replacement env vars, set
+# per-environment via artifacts/*/.env rather than committed here).
+# NOTE: the removed VITE_SUPABASE_ANON_KEY value was actually a
+# `service_role` JWT mislabeled as the anon key — full-access DB
+# credentials that were committed to this repo. Rotate/revoke that key in
+# the Supabase dashboard; removing it from this file does not undo the
+# exposure.
 VAPID_PUBLIC_KEY = "BOqQ90FAgwPFgwi7G9ziAket2P6XJo9NUpC_taKF3tQ7-2Bh_T_NLDVyUXmVDJ1WNYAzBmk1wxiknQrD0uzAC5g"
 VAPID_PRIVATE_KEY = "U8Yxb3TCcg_FnfM9WT27I8zFid9ItY6TKPEp3a1EX5c"
 VAPID_CONTACT = "mailto:admin@buddiesworldwide.app"

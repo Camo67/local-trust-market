@@ -1,0 +1,46 @@
+# Self-hosted Logto — identity provider for Buddies Worldwide.
+# Adapted from Logto's official demo compose file
+# (https://github.com/logto-io/logto/blob/master/docker-compose.yml).
+#
+# NOT production-ready as-is: the bundled Postgres here has no volume, so
+# data is lost on `docker compose down -v` / container replacement. Point
+# DB_URL at a real, backed-up Postgres instance before relying on this for
+# anything but local evaluation. See ../README.md for full setup steps
+# (first-run admin registration, creating the SPA app + API resource).
+services:
+  logto:
+    depends_on:
+      logto-postgres:
+        condition: service_healthy
+    image: svhd/logto:${LOGTO_TAG:-latest}
+    entrypoint: ["sh", "-c", "npm run cli db seed -- --swe && npm start"]
+    ports:
+      - "3001:3001" # core API — what the app and api-server talk to
+      - "3002:3002" # admin console
+    environment:
+      - TRUST_PROXY_HEADER=1
+      - DB_URL=postgres://postgres:${LOGTO_POSTGRES_PASSWORD:-p0stgr3s}@logto-postgres:5432/logto
+      # Set these to your real public URLs once you're past localhost —
+      # Logto uses them to build redirect/callback links.
+      - ENDPOINT
+      - ADMIN_ENDPOINT
+    volumes:
+      - logto-data:/etc/logto
+
+  logto-postgres:
+    image: postgres:17-alpine
+    user: postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${LOGTO_POSTGRES_PASSWORD:-p0stgr3s}
+    volumes:
+      - logto-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  logto-data:
+  logto-postgres-data:

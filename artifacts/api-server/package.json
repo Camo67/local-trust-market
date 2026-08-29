@@ -17,6 +17,7 @@
     "cors": "^2",
     "drizzle-orm": "catalog:",
     "express": "^5",
+    "jose": "^6.2.9",
     "pino": "^9",
     "pino-http": "^10",
     "web-push": "^3.6.7"

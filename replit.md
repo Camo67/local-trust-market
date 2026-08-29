@@ -6,25 +6,27 @@ A safe local marketplace app for South African community trading, with escrow pa
 
 - `pnpm --filter @workspace/buddies-worldwide run dev` — run the frontend (port assigned by Replit)
 - `pnpm run typecheck` — full typecheck across all packages
-- Required env: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`
+- Required env: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_LOGTO_ENDPOINT`, `VITE_LOGTO_APP_ID`, `VITE_SUPABASE_RESOURCE` — see `infra/README.md`
 
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
 - Frontend: React + Vite + React Router v7
-- Backend: Supabase (Postgres + Auth + Storage + RLS)
+- Backend: self-hosted Postgres + PostgREST + Storage-API (the open-source
+  components hosted Supabase runs), RLS enforced at the DB — see `infra/`
+- Identity: self-hosted Logto (OIDC), not Supabase Auth/GoTrue — see `infra/README.md`
 - UI: Tailwind CSS v4, shadcn/ui, Lucide icons
 - State: TanStack Query (React Query)
 
 ## Where things live
 
 - `artifacts/buddies-worldwide/src/` — main React app
-- `artifacts/buddies-worldwide/src/integrations/supabase/` — Supabase client + TypeScript types
+- `artifacts/buddies-worldwide/src/integrations/supabase/` — PostgREST client + TypeScript types (still named "supabase" — same open-source component, just self-hosted)
 - `artifacts/buddies-worldwide/src/pages/` — all page components
 - `artifacts/buddies-worldwide/src/hooks/` — useListings, useConversations, useOrders
-- `artifacts/buddies-worldwide/src/contexts/AuthContext.tsx` — auth state
-- `artifacts/buddies-worldwide/supabase_migration.sql` — **run this in Supabase SQL Editor** to apply new schema
-- `artifacts/buddies-worldwide/supabase/email-templates/` — Supabase Auth email templates to paste into the dashboard
+- `artifacts/buddies-worldwide/src/contexts/AuthContext.tsx` — auth state (Logto-backed)
+- `artifacts/buddies-worldwide/supabase_complete_setup.sql` then `supabase_logto_migration.sql` — **run both, in order,** against the self-hosted Postgres to set up the schema (see `infra/README.md`)
+- `infra/` — docker-compose for self-hosted Logto + the Postgres/PostgREST/Storage-API/Kong data layer, and setup instructions
 
 ## Architecture decisions
 

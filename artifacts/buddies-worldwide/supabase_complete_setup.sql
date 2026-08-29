@@ -1,5 +1,8 @@
--- Buddies Worldwide complete Supabase setup
--- Run this once in Supabase Dashboard > SQL Editor for project nvqlsxkicqgaiwuhqwjc.
+-- Buddies Worldwide complete Supabase-shaped schema setup
+-- Run this once against Postgres (hosted Supabase's SQL Editor, or the
+-- self-hosted `db` service in infra/supabase — see infra/README.md), then
+-- run supabase_logto_migration.sql to switch identity from Supabase
+-- Auth/GoTrue to self-hosted Logto.
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
