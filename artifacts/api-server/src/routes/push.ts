@@ -52,12 +52,14 @@ router.post("/push/subscribe", authMiddleware, async (req: AuthenticatedRequest,
 
     if (error) {
       req.log.error({ error }, "Failed to store push subscription");
+      res.status(500).json({ error: "An internal server error occurred" });
       res.status(500).json({ error: "Internal server error" });
       return;
     }
     res.json({ ok: true });
   } catch (err: any) {
     req.log.error({ err }, "push/subscribe error");
+    res.status(500).json({ error: "An internal server error occurred" });
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -105,6 +107,16 @@ router.post("/push/notify", authMiddleware, async (req: AuthenticatedRequest, re
 
   if (!recipientUserIds?.length || !body || !conversationId) {
     res.status(400).json({ error: "recipientUserIds, body and conversationId required" });
+    return;
+  }
+
+  if (title && title.length > 100) {
+    res.status(400).json({ error: "Title too long" });
+    return;
+  }
+
+  if (body.length > 500) {
+    res.status(400).json({ error: "Body too long" });
     return;
   }
 
