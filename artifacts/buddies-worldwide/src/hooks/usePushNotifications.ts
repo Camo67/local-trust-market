@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
 
 const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY as string;
 const API_BASE = import.meta.env.BASE_URL?.replace(/\/$/, "");
@@ -58,7 +59,7 @@ export const usePushNotifications = () => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
+          "Authorization": `Bearer ${session?.access_token}`,
         },
         body: JSON.stringify({ userId: user.id, subscription: sub.toJSON() }),
       });
@@ -82,7 +83,7 @@ export const usePushNotifications = () => {
           method: "DELETE",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${session.access_token}`,
+            "Authorization": `Bearer ${session?.access_token}`,
           },
           body: JSON.stringify({ userId: user.id, endpoint: sub.endpoint }),
         });
@@ -106,27 +107,28 @@ export const usePushNotifications = () => {
   };
 };
 
-export const sendPushNotification = async (opts: {
-  recipientUserIds: string[];
-  title: string;
-  body: string;
-  conversationId: string;
-  token: string; // Security: Require token for authenticated push requests
-}) => {
+export const sendPushNotification = async (
+  opts: {
+    recipientUserIds: string[];
+    title: string;
+    body: string;
+    conversationId: string;
+  },
+  token?: string
+) => {
   const API_BASE = (import.meta.env.BASE_URL as string)?.replace(/\/$/, "");
   try {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (session?.access_token) {
+      headers["Authorization"] = `Bearer ${session.access_token}`;
+    }
     await fetch(`${API_BASE}/api/push/notify`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${opts.token}`,
+        ...(token ? { "Authorization": `Bearer ${token}` } : {}),
       },
-      body: JSON.stringify({
-        recipientUserIds: opts.recipientUserIds,
-        title: opts.title,
-        body: opts.body,
-        conversationId: opts.conversationId,
-      }),
+      body: JSON.stringify(opts),
     });
   } catch {
     // Non-fatal — push is best-effort

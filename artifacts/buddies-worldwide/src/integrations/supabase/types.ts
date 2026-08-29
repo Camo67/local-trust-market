@@ -236,6 +236,7 @@ export type Database = {
           display_name: string;
           id: string;
           id_verified: boolean;
+          is_admin: boolean;
           location: string | null;
           phone_verified: boolean;
           rating: number;
@@ -251,6 +252,7 @@ export type Database = {
           display_name?: string;
           id?: string;
           id_verified?: boolean;
+          is_admin?: boolean;
           location?: string | null;
           phone_verified?: boolean;
           rating?: number;
@@ -266,6 +268,7 @@ export type Database = {
           display_name?: string;
           id?: string;
           id_verified?: boolean;
+          is_admin?: boolean;
           location?: string | null;
           phone_verified?: boolean;
           rating?: number;
@@ -273,6 +276,33 @@ export type Database = {
           updated_at?: string;
           user_id?: string;
           verification_status?: string;
+        };
+        Relationships: [];
+      };
+      push_subscriptions: {
+        Row: {
+          auth: string;
+          created_at: string;
+          endpoint: string;
+          id: string;
+          p256dh: string;
+          user_id: string;
+        };
+        Insert: {
+          auth: string;
+          created_at?: string;
+          endpoint: string;
+          id?: string;
+          p256dh: string;
+          user_id: string;
+        };
+        Update: {
+          auth?: string;
+          created_at?: string;
+          endpoint?: string;
+          id?: string;
+          p256dh?: string;
+          user_id?: string;
         };
         Relationships: [];
       };

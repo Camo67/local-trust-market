@@ -1,4 +1,4 @@
-## 2025-05-22 - [Authentication and IDOR protection for Push Notification API]
-**Vulnerability:** The push notification API endpoints (`/push/subscribe`, `/push/unsubscribe`, `/push/notify`) were completely unauthenticated. Anyone could subscribe any user to push notifications or trigger notifications for any user if they knew their `userId`. This was both a missing authentication issue and an IDOR (Insecure Direct Object Reference) vulnerability.
-**Learning:** Even internal-looking APIs or "best-effort" features like push notifications need proper authentication if they handle user-specific data or can be used to annoy/spam users.
-**Prevention:** Always implement a standard authentication middleware for all API routes that interact with user data. Perform explicit authorization checks (e.g., `req.user.id === requestedUserId`) for all operations on user-owned resources.
+## 2025-05-22 - push-notification-authorization
+**Vulnerability:** Unauthenticated and unauthorized push notification endpoints allowed anyone to subscribe/unsubscribe any user and spam notifications to any user.
+**Learning:** Even "best-effort" or "side-channel" features like push notifications need full AAA (Authentication, Authorization, and Audit) if they handle user-specific data or allow communication between users.
+**Prevention:** Always implement authentication middleware for all API endpoints and verify that the requester has the necessary permissions to perform the action on the specific resource (e.g., matching user IDs or checking conversation membership).

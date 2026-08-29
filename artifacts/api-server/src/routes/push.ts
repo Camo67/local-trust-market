@@ -1,9 +1,49 @@
-import { Router } from "express";
+import { Router, type Request, type Response, type NextFunction } from "express";
 import webpush from "web-push";
-import { getSupabase } from "../lib/supabase";
-import { requireAuth } from "../middlewares/auth";
+import { createClient, type SupabaseClient, type User } from "@supabase/supabase-js";
 
 const router = Router();
+
+interface AuthRequest extends Request {
+  user?: User;
+}
+
+const authMiddleware = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith("Bearer ")) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const token = authHeader.split(" ")[1];
+  try {
+    const supabase = getSupabase();
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+
+    if (error || !user) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    req.user = user;
+    next();
+  } catch (err) {
+    req.log.error({ err }, "Auth middleware error");
+    res.status(401).json({ error: "Unauthorized" });
+  }
+};
+
+let _supabase: SupabaseClient | null = null;
+function getSupabase() {
+  if (_supabase) return _supabase;
+  const url = process.env["VITE_SUPABASE_URL"];
+  const key = process.env["VITE_SUPABASE_ANON_KEY"];
+  if (!url || !key) throw new Error("Supabase env vars not set");
+  return createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { Authorization: `Bearer ${token}` } },
+  });
+}
 
 let _vapidSet = false;
 function ensureVapid() {
@@ -17,33 +57,31 @@ function ensureVapid() {
   _vapidSet = true;
 }
 
-/**
- * Security: Added requireAuth middleware.
- * Verification: Checks that the userId being subscribed matches the authenticated user.
- */
-router.post("/push/subscribe", requireAuth, async (req, res) => {
+router.post("/push/subscribe", authMiddleware, async (req: AuthRequest, res) => {
   const { userId, subscription } = req.body as {
     userId: string;
     subscription: { endpoint: string; keys: { p256dh: string; auth: string } };
   };
+
+  // Authorization check: User can only subscribe for themselves
+  // @ts-ignore
+  if (userId !== req.user.id) {
+    res.status(403).json({ error: "Unauthorized: You can only subscribe for yourself" });
+    return;
+  }
 
   if (!userId || !subscription?.endpoint) {
     res.status(400).json({ error: "userId and subscription required" });
     return;
   }
 
-  // Security: Authorization check
   if (req.user?.id !== userId) {
-    req.log.warn(
-      { authUserId: req.user?.id, requestedUserId: userId },
-      "Unauthorized push subscription attempt",
-    );
-    res.status(403).json({ error: "Forbidden: Cannot subscribe for other users" });
+    res.status(403).json({ error: "Forbidden" });
     return;
   }
 
   try {
-    const supabase = getSupabase();
+    const supabase = getUserSupabase(req);
     const { error } = await supabase
       .from("push_subscriptions")
       .upsert(
@@ -58,61 +96,57 @@ router.post("/push/subscribe", requireAuth, async (req, res) => {
 
     if (error) {
       req.log.error({ error }, "Failed to store push subscription");
-      res.status(500).json({ error: "Failed to save subscription" });
+      res.status(500).json({ error: "Internal server error" });
       return;
     }
     res.json({ ok: true });
   } catch (err: any) {
     req.log.error({ err }, "push/subscribe error");
-    // Security: Do not leak error.message to the client
     res.status(500).json({ error: "Internal server error" });
   }
 });
 
-/**
- * Security: Added requireAuth middleware.
- * Verification: Checks that the userId being unsubscribed matches the authenticated user.
- */
-router.delete("/push/unsubscribe", requireAuth, async (req, res) => {
+router.delete("/push/unsubscribe", authMiddleware, async (req: AuthRequest, res) => {
   const { userId, endpoint } = req.body as { userId: string; endpoint: string };
+
+  // Authorization check: User can only unsubscribe for themselves
+  // @ts-ignore
+  if (userId !== req.user.id) {
+    res.status(403).json({ error: "Unauthorized: You can only unsubscribe for yourself" });
+    return;
+  }
+
   if (!userId || !endpoint) {
     res.status(400).json({ error: "userId and endpoint required" });
     return;
   }
 
-  // Security: Authorization check
   if (req.user?.id !== userId) {
-    req.log.warn(
-      { authUserId: req.user?.id, requestedUserId: userId },
-      "Unauthorized push unsubscription attempt",
-    );
-    res
-      .status(403)
-      .json({ error: "Forbidden: Cannot unsubscribe for other users" });
+    res.status(403).json({ error: "Forbidden" });
     return;
   }
 
   try {
     const supabase = getSupabase();
-    await supabase
+    const { error } = await supabase
       .from("push_subscriptions")
       .delete()
       .eq("user_id", userId)
       .eq("endpoint", endpoint);
+
+    if (error) {
+      req.log.error({ error }, "Failed to delete push subscription");
+      res.status(500).json({ error: "Internal server error" });
+      return;
+    }
     res.json({ ok: true });
   } catch (err: any) {
     req.log.error({ err }, "push/unsubscribe error");
-    // Security: Do not leak error.message to the client
     res.status(500).json({ error: "Internal server error" });
   }
 });
 
-/**
- * Security: Added requireAuth middleware.
- * This endpoint allows any authenticated user to send a notification to others.
- * In a real-world app, we might want to verify if the sender is part of the conversation.
- */
-router.post("/push/notify", requireAuth, async (req, res) => {
+router.post("/push/notify", authMiddleware, async (req: AuthRequest, res) => {
   const { recipientUserIds, title, body, conversationId } = req.body as {
     recipientUserIds: string[];
     title: string;
@@ -120,23 +154,76 @@ router.post("/push/notify", requireAuth, async (req, res) => {
     conversationId: string;
   };
 
-  if (!recipientUserIds?.length || !body) {
-    res.status(400).json({ error: "recipientUserIds and body required" });
+  if (!recipientUserIds?.length || !body || !conversationId) {
+    res.status(400).json({ error: "recipientUserIds, body and conversationId required" });
     return;
   }
 
   try {
     ensureVapid();
-    const supabase = getSupabase();
+    const supabase = getServiceSupabase();
+
+    // Authorization check: User must be a participant in the conversation
+    const { data: conversation, error: convError } = await supabase
+      .from("conversations")
+      .select("buyer_id, seller_id, moderator_id")
+      .eq("id", conversationId)
+      .single();
+
+    if (convError || !conversation) {
+      req.log.error({ convError, conversationId }, "Conversation not found or access denied");
+      res.status(404).json({ error: "Conversation not found" });
+      return;
+    }
+
+    const { buyer_id, seller_id, moderator_id } = conversation as any;
+    // @ts-ignore
+    const currentUserId = req.user.id;
+
+    if (currentUserId !== buyer_id && currentUserId !== seller_id && currentUserId !== moderator_id) {
+      res.status(403).json({ error: "Unauthorized: You are not a participant in this conversation" });
+      return;
+    }
+
+    // Security: Only send to users who are actually in this conversation
+    const participants = [buyer_id, seller_id, moderator_id].filter(Boolean);
+    const validRecipientUserIds = recipientUserIds.filter((id) => participants.includes(id));
+
+    if (validRecipientUserIds.length === 0) {
+      res.json({ sent: 0, failed: 0 });
+      return;
+    }
+
+    // Verify sender is participant in conversation
+    const { data: conv, error: convError } = await supabase
+      .from("conversations")
+      .select("buyer_id, seller_id, moderator_id")
+      .eq("id", conversationId)
+      .single();
+
+    if (convError || !conv) {
+      res.status(404).json({ error: "Conversation not found" });
+      return;
+    }
+
+    const isParticipant =
+      conv.buyer_id === req.user?.id ||
+      conv.seller_id === req.user?.id ||
+      conv.moderator_id === req.user?.id;
+
+    if (!isParticipant) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
 
     const { data: subs, error } = await supabase
       .from("push_subscriptions")
       .select("endpoint, p256dh, auth")
-      .in("user_id", recipientUserIds);
+      .in("user_id", validRecipientUserIds);
 
     if (error) {
       req.log.error({ error }, "Failed to fetch push subscriptions");
-      res.status(500).json({ error: "Failed to fetch subscriptions" });
+      res.status(500).json({ error: "Internal server error" });
       return;
     }
 
@@ -171,7 +258,6 @@ router.post("/push/notify", requireAuth, async (req, res) => {
     res.json({ sent, failed });
   } catch (err: any) {
     req.log.error({ err }, "push/notify error");
-    // Security: Do not leak error.message to the client
     res.status(500).json({ error: "Internal server error" });
   }
 });
