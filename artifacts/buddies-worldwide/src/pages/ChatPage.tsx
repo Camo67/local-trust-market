@@ -23,7 +23,7 @@ const TYPING_TIMEOUT_MS = 2500;
 const ChatPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { user, session } = useAuth();
+  const { user, getAccessToken } = useAuth();
   const { markRead } = useUnread();
   const { data: messages } = useMessages(id || "");
   const { data: conversation } = useConversation(id || "");
@@ -199,7 +199,7 @@ const ChatPage = () => {
             body: content.length > 80 ? content.slice(0, 77) + "…" : content,
             conversationId: id,
           },
-          session?.access_token
+          await getAccessToken()
         );
       }
     }

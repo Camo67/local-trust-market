@@ -383,7 +383,12 @@ export type Database = {
       };
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      ensure_own_profile: {
+        Args: { p_display_name?: string | null };
+        Returns: Database["public"]["Tables"]["profiles"]["Row"];
+      };
+    };
     Enums: Record<string, never>;
     CompositeTypes: Record<string, never>;
   };

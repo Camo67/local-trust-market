@@ -1,176 +1,183 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { supabase } from "@/integrations/supabase/client";
-import type { User, Session } from "@supabase/supabase-js";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { useLogto, type IdTokenClaims } from "@logto/react";
+import { supabase, setLogtoAccessTokenGetter } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 
 type Profile = Database["public"]["Tables"]["profiles"]["Row"];
 
+// Logto's `sub` is not the same string shape GoTrue used (it's not a UUID),
+// but it's still the one stable, verified identifier for the signed-in
+// user — everything downstream (RLS, FKs) is keyed on it as plain text now.
+export interface AuthUser {
+  id: string;
+  email?: string;
+}
+
+const SUPABASE_RESOURCE = import.meta.env.VITE_SUPABASE_RESOURCE as string | undefined;
+
 interface AuthContextType {
-  user: User | null;
+  user: AuthUser | null;
   profile: Profile | null;
-  session: Session | null;
   isAdmin: boolean;
   loading: boolean;
-  isAdmin: boolean;
   profileLoading: boolean;
+  signIn: () => Promise<void>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
+  /** Access token scoped to the Supabase/PostgREST API resource, or undefined if signed out. */
+  getAccessToken: () => Promise<string | undefined>;
 }
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
   profile: null,
-  session: null,
   isAdmin: false,
   loading: true,
-  isAdmin: false,
   profileLoading: true,
+  signIn: async () => {},
   signOut: async () => {},
   refreshProfile: async () => {},
+  getAccessToken: async () => undefined,
 });
 
 export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [user, setUser] = useState<User | null>(null);
+  const {
+    isAuthenticated,
+    isLoading: logtoLoading,
+    signIn: logtoSignIn,
+    signOut: logtoSignOut,
+    getIdTokenClaims,
+    getAccessToken: logtoGetAccessToken,
+  } = useLogto();
+
+  const [user, setUser] = useState<AuthUser | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
-  const [session, setSession] = useState<Session | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
-  const [loading, setLoading] = useState(true);
   const [profileLoading, setProfileLoading] = useState(false);
+  // Guards against retrying ensure_own_profile in a loop if provisioning
+  // ever fails for a given user within one session.
+  const provisionedFor = useRef<string | null>(null);
 
-  const updateAuthState = async (newSession: Session | null) => {
-    // Only update if session changed to avoid redundant profile fetches
-    if (newSession?.user?.id === user?.id && !!newSession === !!session) {
-       setLoading(false);
-       return;
-    }
+  const getAccessToken = async (): Promise<string | undefined> => {
+    if (!isAuthenticated) return undefined;
+    return logtoGetAccessToken(SUPABASE_RESOURCE);
+  };
 
-    setSession(newSession);
-    setUser(newSession?.user ?? null);
+  // The plain supabase-js singleton in client.ts can't call useLogto() itself
+  // (it's created before React mounts), so hand it a live getter here.
+  useEffect(() => {
+    setLogtoAccessTokenGetter(getAccessToken);
+  });
 
-    if (newSession?.user) {
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadProfile = async (authUser: AuthUser, claims: IdTokenClaims) => {
+      setProfileLoading(true);
       try {
         const { data, error } = await supabase
           .from("profiles")
-          .select("is_admin")
-          .eq("user_id", newSession.user.id)
+          .select("*")
+          .eq("user_id", authUser.id)
           .maybeSingle();
 
-        setIsAdmin(data?.is_admin ?? false);
-      } catch (err) {
-        console.error("Error fetching admin status:", err);
-        setIsAdmin(false);
+        if (error) {
+          console.error("Error fetching profile:", error);
+          return;
+        }
+
+        if (data) {
+          if (!cancelled) {
+            setProfile(data);
+            setIsAdmin(!!data.is_admin);
+          }
+          return;
+        }
+
+        // No profiles row yet: Logto users aren't provisioned by a DB
+        // trigger the way GoTrue users were. Create it once, ourselves.
+        if (provisionedFor.current === authUser.id) return;
+        provisionedFor.current = authUser.id;
+
+        const displayName =
+          claims.name ?? claims.username ?? (claims.email ? claims.email.split("@")[0] : undefined);
+
+        const { data: created, error: rpcError } = await supabase.rpc("ensure_own_profile", {
+          p_display_name: displayName ?? null,
+        });
+
+        if (rpcError) {
+          console.error("Error provisioning profile:", rpcError);
+          provisionedFor.current = null;
+          return;
+        }
+
+        if (!cancelled) {
+          setProfile(created);
+          setIsAdmin(!!created?.is_admin);
+        }
+      } finally {
+        if (!cancelled) setProfileLoading(false);
       }
-    } else {
-      setIsAdmin(false);
-    }
-    setLoading(false);
-  };
+    };
 
-  const fetchProfile = async (userId: string) => {
-    try {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("*")
-        .eq("user_id", userId)
-        .maybeSingle();
+    const sync = async () => {
+      if (logtoLoading) return;
 
-      if (error) {
-        console.error("Error fetching profile:", error);
-      } else {
-        setProfile(data);
-      }
-    } catch (err) {
-      console.error("Unexpected error fetching profile:", err);
-    }
-  };
-
-  const refreshProfile = async () => {
-    if (user) {
-      await fetchProfile(user.id);
-    }
-  };
-
-  useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      setSession(session);
-      const newUser = session?.user ?? null;
-      setUser(newUser);
-
-      if (newUser) {
-        await fetchProfile(newUser.id);
-      } else {
+      if (!isAuthenticated) {
+        setUser(null);
         setProfile(null);
-      }
-
-      setLoading(false);
-    });
-
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      setSession(session);
-      const newUser = session?.user ?? null;
-      setUser(newUser);
-
-      if (newUser) {
-        await fetchProfile(newUser.id);
-      } else {
-        setProfile(null);
-      }
-
-      setLoading(false);
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
-
-  useEffect(() => {
-    const fetchProfile = async () => {
-      if (!user) {
         setIsAdmin(false);
         setProfileLoading(false);
         return;
       }
 
-      setProfileLoading(true);
-      try {
-        // SECURITY: We fetch the profile from a secured table to verify admin status.
-        // Although RLS prevents users from modifying 'is_admin', we must verify it here
-        // to protect the frontend administration interface.
-        const { data, error } = await supabase
-          .from("profiles")
-          .select("is_admin")
-          .eq("user_id", user.id)
-          .maybeSingle();
+      const claims = await getIdTokenClaims();
+      if (!claims || cancelled) return;
 
-        if (error) {
-          console.error("Error fetching profile:", error);
-          setIsAdmin(false);
-        } else {
-          setIsAdmin(!!data?.is_admin);
-        }
-      } catch (err) {
-        console.error("Unexpected error fetching profile:", err);
-        setIsAdmin(false);
-      } finally {
-        setProfileLoading(false);
-        setLoading(false);
-      }
+      const nextUser: AuthUser = { id: claims.sub, email: claims.email ?? undefined };
+      setUser(nextUser);
+      await loadProfile(nextUser, claims);
     };
 
-    fetchProfile();
-  }, [user]);
+    sync();
 
-  // If we have a user but haven't checked their profile yet, we MUST stay in a loading state
-  // to prevent 'AdminRoute' from prematurely redirecting an admin user.
-  const combinedLoading = loading || (!!user && profileLoading);
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuthenticated, logtoLoading]);
 
-  const signOut = async () => {
-    await supabase.auth.signOut();
+  const refreshProfile = async () => {
+    if (!user) return;
+    const { data, error } = await supabase.from("profiles").select("*").eq("user_id", user.id).maybeSingle();
+    if (error) {
+      console.error("Error refreshing profile:", error);
+      return;
+    }
+    setProfile(data);
+    setIsAdmin(!!data?.is_admin);
   };
 
+  const signIn = async () => {
+    await logtoSignIn(`${window.location.origin}/callback`);
+  };
+
+  const signOut = async () => {
+    await logtoSignOut(window.location.origin);
+  };
+
+  // Stay "loading" until Logto has resolved AND, for a signed-in user, the
+  // profile fetch/provision has finished — otherwise ProtectedRoute could
+  // redirect an admin away before we know they're an admin.
+  const loading = logtoLoading || (isAuthenticated && profileLoading && !profile);
+
   return (
-    <AuthContext.Provider value={{ user, profile, session, loading, signOut, refreshProfile }}>
+    <AuthContext.Provider
+      value={{ user, profile, isAdmin, loading, profileLoading, signIn, signOut, refreshProfile, getAccessToken }}
+    >
       {children}
     </AuthContext.Provider>
   );
