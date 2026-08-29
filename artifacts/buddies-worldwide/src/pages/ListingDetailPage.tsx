@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { ArrowLeft, Star, MessageCircle, Shield, ChevronLeft, ChevronRight } from "lucide-react";
+import { ArrowLeft, Star, MessageCircle, Shield, ChevronLeft, ChevronRight, User } from "lucide-react";
 import { useListing } from "@/hooks/useListings";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -51,6 +51,7 @@ const ListingDetailPage = () => {
 
   const images = listing.images && listing.images.length > 0 ? listing.images : (listing.image_url ? [listing.image_url] : []);
   const isOwnListing = user?.id === listing.seller_id;
+  const sellerInitials = listing.seller?.display_name?.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2) || "??";
 
   return (
     <div className="pb-28">
@@ -118,8 +119,12 @@ const ListingDetailPage = () => {
         </div>
 
         <div className="flex items-center gap-3 rounded-2xl bg-card p-3 shadow-sm">
-          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
-            {listing.seller?.display_name?.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2) || "??"}
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary overflow-hidden">
+            {listing.seller?.avatar_url ? (
+              <img src={listing.seller.avatar_url} alt="" className="h-full w-full object-cover" />
+            ) : (
+              sellerInitials
+            )}
           </div>
           <div>
             <p className="font-semibold text-sm text-card-foreground">{listing.seller?.display_name || "Unknown"}</p>

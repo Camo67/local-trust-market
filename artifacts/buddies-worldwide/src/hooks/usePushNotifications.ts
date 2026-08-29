@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
 
 const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY as string;
 const API_BASE = import.meta.env.BASE_URL?.replace(/\/$/, "");
@@ -14,7 +15,7 @@ function urlBase64ToUint8Array(base64String: string) {
 export type PushPermission = "default" | "granted" | "denied" | "unsupported";
 
 export const usePushNotifications = () => {
-  const { user } = useAuth();
+  const { user, session } = useAuth();
   const [permission, setPermission] = useState<PushPermission>("default");
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -38,7 +39,7 @@ export const usePushNotifications = () => {
   }, [supported, user]);
 
   const subscribe = useCallback(async () => {
-    if (!supported || !user) return;
+    if (!supported || !user || !session) return;
     setIsLoading(true);
     try {
       const perm = await Notification.requestPermission();
@@ -53,7 +54,10 @@ export const usePushNotifications = () => {
 
       await fetch(`${API_BASE}/api/push/subscribe`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${session?.access_token}`,
+        },
         body: JSON.stringify({ userId: user.id, subscription: sub.toJSON() }),
       });
 
@@ -63,10 +67,10 @@ export const usePushNotifications = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [supported, user]);
+  }, [supported, user, session]);
 
   const unsubscribe = useCallback(async () => {
-    if (!supported || !user) return;
+    if (!supported || !user || !session) return;
     setIsLoading(true);
     try {
       const reg = await navigator.serviceWorker.ready;
@@ -74,7 +78,10 @@ export const usePushNotifications = () => {
       if (sub) {
         await fetch(`${API_BASE}/api/push/unsubscribe`, {
           method: "DELETE",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${session?.access_token}`,
+          },
           body: JSON.stringify({ userId: user.id, endpoint: sub.endpoint }),
         });
         await sub.unsubscribe();
@@ -85,22 +92,32 @@ export const usePushNotifications = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [supported, user]);
+  }, [supported, user, session]);
 
   return { supported, permission, isSubscribed, isLoading, subscribe, unsubscribe };
 };
 
-export const sendPushNotification = async (opts: {
-  recipientUserIds: string[];
-  title: string;
-  body: string;
-  conversationId: string;
-}) => {
+export const sendPushNotification = async (
+  opts: {
+    recipientUserIds: string[];
+    title: string;
+    body: string;
+    conversationId: string;
+  },
+  token?: string
+) => {
   const API_BASE = (import.meta.env.BASE_URL as string)?.replace(/\/$/, "");
   try {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (session?.access_token) {
+      headers["Authorization"] = `Bearer ${session.access_token}`;
+    }
     await fetch(`${API_BASE}/api/push/notify`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { "Authorization": `Bearer ${token}` } : {}),
+      },
       body: JSON.stringify(opts),
     });
   } catch {

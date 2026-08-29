@@ -1,8 +1,37 @@
-import { Router } from "express";
+import { Router, type Request, type Response, type NextFunction } from "express";
 import webpush from "web-push";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient, type User } from "@supabase/supabase-js";
 
 const router = Router();
+
+interface AuthRequest extends Request {
+  user?: User;
+}
+
+const authMiddleware = async (req: AuthRequest, res: Response, next: NextFunction) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader?.startsWith("Bearer ")) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+
+  const token = authHeader.split(" ")[1];
+  try {
+    const supabase = getSupabase();
+    const { data: { user }, error } = await supabase.auth.getUser(token);
+
+    if (error || !user) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    req.user = user;
+    next();
+  } catch (err) {
+    req.log.error({ err }, "Auth middleware error");
+    res.status(401).json({ error: "Unauthorized" });
+  }
+};
 
 let _supabase: SupabaseClient | null = null;
 function getSupabase() {
@@ -10,8 +39,10 @@ function getSupabase() {
   const url = process.env["VITE_SUPABASE_URL"];
   const key = process.env["VITE_SUPABASE_ANON_KEY"];
   if (!url || !key) throw new Error("Supabase env vars not set");
-  _supabase = createClient(url, key);
-  return _supabase;
+  return createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { Authorization: `Bearer ${token}` } },
+  });
 }
 
 let _vapidSet = false;
@@ -25,7 +56,7 @@ function ensureVapid() {
   _vapidSet = true;
 }
 
-router.post("/push/subscribe", async (req, res) => {
+router.post("/push/subscribe", authMiddleware, async (req: AuthRequest, res) => {
   const { userId, subscription } = req.body as {
     userId: string;
     subscription: { endpoint: string; keys: { p256dh: string; auth: string } };
@@ -38,11 +69,25 @@ router.post("/push/subscribe", async (req, res) => {
     !subscription?.keys?.auth
   ) {
     res.status(400).json({ error: "Invalid subscription payload" });
+  // Authorization check: User can only subscribe for themselves
+  // @ts-ignore
+  if (userId !== req.user.id) {
+    res.status(403).json({ error: "Unauthorized: You can only subscribe for yourself" });
+    return;
+  }
+
+  if (!userId || !subscription?.endpoint) {
+    res.status(400).json({ error: "userId and subscription required" });
+    return;
+  }
+
+  if (req.user?.id !== userId) {
+    res.status(403).json({ error: "Forbidden" });
     return;
   }
 
   try {
-    const supabase = getSupabase();
+    const supabase = getUserSupabase(req);
     const { error } = await supabase
       .from("push_subscriptions")
       .upsert(
@@ -58,21 +103,37 @@ router.post("/push/subscribe", async (req, res) => {
     if (error) {
       req.log.error({ error }, "Failed to store push subscription");
       res.status(500).json({ error: "An internal server error occurred" });
+      res.status(500).json({ error: "Internal server error" });
       return;
     }
     res.json({ ok: true });
   } catch (err: any) {
     req.log.error({ err }, "push/subscribe error");
     res.status(500).json({ error: "An internal server error occurred" });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
-router.delete("/push/unsubscribe", async (req, res) => {
+router.delete("/push/unsubscribe", authMiddleware, async (req: AuthRequest, res) => {
   const { userId, endpoint } = req.body as { userId: string; endpoint: string };
+
+  // Authorization check: User can only unsubscribe for themselves
+  // @ts-ignore
+  if (userId !== req.user.id) {
+    res.status(403).json({ error: "Unauthorized: You can only unsubscribe for yourself" });
+    return;
+  }
+
   if (!userId || !endpoint) {
     res.status(400).json({ error: "userId and endpoint required" });
     return;
   }
+
+  if (req.user?.id !== userId) {
+    res.status(403).json({ error: "Forbidden" });
+    return;
+  }
+
   try {
     const supabase = getSupabase();
     const { error } = await supabase
@@ -83,17 +144,17 @@ router.delete("/push/unsubscribe", async (req, res) => {
 
     if (error) {
       req.log.error({ error }, "Failed to delete push subscription");
-      res.status(500).json({ error: "An internal server error occurred" });
+      res.status(500).json({ error: "Internal server error" });
       return;
     }
     res.json({ ok: true });
   } catch (err: any) {
     req.log.error({ err }, "push/unsubscribe error");
-    res.status(500).json({ error: "An internal server error occurred" });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
-router.post("/push/notify", async (req, res) => {
+router.post("/push/notify", authMiddleware, async (req: AuthRequest, res) => {
   const { recipientUserIds, title, body, conversationId } = req.body as {
     recipientUserIds: string[];
     title: string;
@@ -101,8 +162,8 @@ router.post("/push/notify", async (req, res) => {
     conversationId: string;
   };
 
-  if (!recipientUserIds?.length || !body) {
-    res.status(400).json({ error: "recipientUserIds and body required" });
+  if (!recipientUserIds?.length || !body || !conversationId) {
+    res.status(400).json({ error: "recipientUserIds, body and conversationId required" });
     return;
   }
 
@@ -118,16 +179,69 @@ router.post("/push/notify", async (req, res) => {
 
   try {
     ensureVapid();
-    const supabase = getSupabase();
+    const supabase = getServiceSupabase();
+
+    // Authorization check: User must be a participant in the conversation
+    const { data: conversation, error: convError } = await supabase
+      .from("conversations")
+      .select("buyer_id, seller_id, moderator_id")
+      .eq("id", conversationId)
+      .single();
+
+    if (convError || !conversation) {
+      req.log.error({ convError, conversationId }, "Conversation not found or access denied");
+      res.status(404).json({ error: "Conversation not found" });
+      return;
+    }
+
+    const { buyer_id, seller_id, moderator_id } = conversation as any;
+    // @ts-ignore
+    const currentUserId = req.user.id;
+
+    if (currentUserId !== buyer_id && currentUserId !== seller_id && currentUserId !== moderator_id) {
+      res.status(403).json({ error: "Unauthorized: You are not a participant in this conversation" });
+      return;
+    }
+
+    // Security: Only send to users who are actually in this conversation
+    const participants = [buyer_id, seller_id, moderator_id].filter(Boolean);
+    const validRecipientUserIds = recipientUserIds.filter((id) => participants.includes(id));
+
+    if (validRecipientUserIds.length === 0) {
+      res.json({ sent: 0, failed: 0 });
+      return;
+    }
+
+    // Verify sender is participant in conversation
+    const { data: conv, error: convError } = await supabase
+      .from("conversations")
+      .select("buyer_id, seller_id, moderator_id")
+      .eq("id", conversationId)
+      .single();
+
+    if (convError || !conv) {
+      res.status(404).json({ error: "Conversation not found" });
+      return;
+    }
+
+    const isParticipant =
+      conv.buyer_id === req.user?.id ||
+      conv.seller_id === req.user?.id ||
+      conv.moderator_id === req.user?.id;
+
+    if (!isParticipant) {
+      res.status(403).json({ error: "Forbidden" });
+      return;
+    }
 
     const { data: subs, error } = await supabase
       .from("push_subscriptions")
       .select("endpoint, p256dh, auth")
-      .in("user_id", recipientUserIds);
+      .in("user_id", validRecipientUserIds);
 
     if (error) {
       req.log.error({ error }, "Failed to fetch push subscriptions");
-      res.status(500).json({ error: "An internal server error occurred" });
+      res.status(500).json({ error: "Internal server error" });
       return;
     }
 
@@ -159,7 +273,7 @@ router.post("/push/notify", async (req, res) => {
     res.json({ sent, failed });
   } catch (err: any) {
     req.log.error({ err }, "push/notify error");
-    res.status(500).json({ error: "An internal server error occurred" });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
