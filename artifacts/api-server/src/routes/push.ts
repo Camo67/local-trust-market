@@ -50,7 +50,8 @@ function ensureVapid() {
   if (_vapidSet) return;
   const pub = process.env["VAPID_PUBLIC_KEY"];
   const priv = process.env["VAPID_PRIVATE_KEY"];
-  const contact = process.env["VAPID_CONTACT"] || "mailto:admin@buddiesworldwide.app";
+  const contact =
+    process.env["VAPID_CONTACT"] || "mailto:admin@buddiesworldwide.app";
   if (!pub || !priv) throw new Error("VAPID keys not set");
   webpush.setVapidDetails(contact, pub, priv);
   _vapidSet = true;
@@ -90,7 +91,7 @@ router.post("/push/subscribe", authMiddleware, async (req: AuthRequest, res) => 
           p256dh: subscription.keys.p256dh,
           auth: subscription.keys.auth,
         },
-        { onConflict: "user_id,endpoint" }
+        { onConflict: "user_id,endpoint" },
       );
 
     if (error) {
@@ -241,10 +242,13 @@ router.post("/push/notify", authMiddleware, async (req: AuthRequest, res) => {
     const results = await Promise.allSettled(
       (subs as any[]).map((sub) =>
         webpush.sendNotification(
-          { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-          payload
-        )
-      )
+          {
+            endpoint: sub.endpoint,
+            keys: { p256dh: sub.p256dh, auth: sub.auth },
+          },
+          payload,
+        ),
+      ),
     );
 
     const sent = results.filter((r) => r.status === "fulfilled").length;

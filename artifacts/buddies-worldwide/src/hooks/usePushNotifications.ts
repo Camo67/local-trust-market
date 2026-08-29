@@ -26,7 +26,10 @@ export const usePushNotifications = () => {
     !!VAPID_PUBLIC_KEY;
 
   useEffect(() => {
-    if (!supported) { setPermission("unsupported"); return; }
+    if (!supported) {
+      setPermission("unsupported");
+      return;
+    }
     setPermission(Notification.permission as PushPermission);
   }, [supported]);
 
@@ -94,7 +97,14 @@ export const usePushNotifications = () => {
     }
   }, [supported, user, session]);
 
-  return { supported, permission, isSubscribed, isLoading, subscribe, unsubscribe };
+  return {
+    supported,
+    permission,
+    isSubscribed,
+    isLoading,
+    subscribe,
+    unsubscribe,
+  };
 };
 
 export const sendPushNotification = async (
